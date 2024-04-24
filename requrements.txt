@@ -1,0 +1,57 @@
+Bottleneck @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_e7wwl52wn1/croot/bottleneck_1709075893359/work
+Brotli @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/brotli-split_1699237319520/work
+certifi @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_3bzbkiv4h_/croot/certifi_1707229182618/work/certifi
+charset-normalizer @ file:///tmp/build/80754af9/charset-normalizer_1630003229654/work
+colorcet @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_b4xbyn75js/croot/colorcet_1709758362167/work
+contourpy @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/contourpy_1701814001737/work
+cycler @ file:///tmp/build/80754af9/cycler_1637851556182/work
+fonttools==4.25.0
+idna @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/idna_1699237644810/work
+imagecodecs @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/imagecodecs_1699241106295/work
+imageio @ file:///private/var/folders/nz/j6p8yfhx1mv_0grj5xl4650h0000gp/T/abs_3d_rw6fwwk/croot/imageio_1707247298334/work
+importlib-resources @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_77lzrsh8mp/croot/importlib_resources-suite_1704281852961/work
+joblib @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/joblib_1699241239748/work
+kiwisolver @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/kiwisolver_1699239145780/work
+lazy_loader @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/lazy_loader_1699242279651/work
+littleutils==0.2.2
+llvmlite @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_a1dv4fk0r3/croot/llvmlite_1706910711755/work
+lxml @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/lxml_1699242309551/work
+matplotlib @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/matplotlib-suite_1699241272749/work
+mpmath @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/mpmath_1699242500508/work
+munkres==1.1.4
+networkx @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/networkx_1699242555148/work
+nibabel @ file:///home/conda/feedstock_root/build_artifacts/nibabel_1709044711835/work
+nilearn @ file:///home/conda/feedstock_root/build_artifacts/nilearn_1706533095536/work
+numba @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_1btfzhucw0/croot/numba_1711986260344/work
+numexpr @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/numexpr_1699237935415/work
+numpy @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_a51i_mbs7m/croot/numpy_and_numpy_base_1708638620867/work/dist/numpy-1.26.4-cp312-cp312-macosx_11_0_arm64.whl#sha256=37afb6b734a197702d848df93bd67c10b52f6467d56e518950d84b6b1c949d27
+outdated @ file:///home/conda/feedstock_root/build_artifacts/outdated_1667391529811/work
+packaging @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_a6lqg7at4g/croot/packaging_1710807410750/work
+pandas @ file:///private/var/folders/nz/j6p8yfhx1mv_0grj5xl4650h0000gp/T/abs_988rx6x546/croot/pandas_1709590494976/work/dist/pandas-2.2.1-cp312-cp312-macosx_11_0_arm64.whl#sha256=32bac561454fa7751bb78a7886ff57cc7dab7dbaf43aea898c4f3a260743b231
+pandas-flavor @ file:///home/conda/feedstock_root/build_artifacts/pandas-flavor_1699047263912/work
+param @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_b6k65pgq2g/croot/param_1711136833866/work
+patsy==0.5.3
+pillow @ file:///private/var/folders/nz/j6p8yfhx1mv_0grj5xl4650h0000gp/T/abs_e02b4k5qik/croot/pillow_1707233036487/work
+pingouin @ file:///home/conda/feedstock_root/build_artifacts/pingouin_1705312403463/work
+pyct @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/pyct_1699248363282/work
+pyparsing @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/pyparsing_1699239441347/work
+PySocks @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/pysocks_1699237568675/work
+python-dateutil @ file:///tmp/build/80754af9/python-dateutil_1626374649649/work
+pytz @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/pytz_1699238107851/work
+PyYAML @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/pyyaml_1699240344586/work
+requests @ file:///private/var/folders/nz/j6p8yfhx1mv_0grj5xl4650h0000gp/T/abs_b3tnputioh/croot/requests_1707355573919/work
+scikit-image @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_afct9vfeyr/croot/scikit-image_1707346121694/work
+scikit-learn @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/scikit-learn_1699243168502/work
+scipy @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_41w43uybvr/croot/scipy_1710947318888/work/dist/scipy-1.12.0-cp312-cp312-macosx_11_0_arm64.whl#sha256=6d0bd33dad506a4aab2a959ba54ce86d5b73996866b855ded741cfcedfadb1c9
+seaborn @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/seaborn_1699249999430/work
+setuptools==68.2.2
+six @ file:///tmp/build/80754af9/six_1644875935023/work
+statsmodels @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/statsmodels_1701807246681/work
+tabulate @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/tabulate_1701807377411/work
+threadpoolctl @ file:///Users/ktietz/demo/mc3/conda-bld/threadpoolctl_1629802263681/work
+tifffile @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/tifffile_1699243525693/work
+tornado @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/tornado_1699243541634/work
+tzdata @ file:///croot/python-tzdata_1690578112552/work
+urllib3 @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_aff2m3lasf/croot/urllib3_1707770561896/work
+wheel==0.41.2
+xarray @ file:///Users/builder/cbouss/perseverance-python-buildout/croot/xarray_1699240726099/work
