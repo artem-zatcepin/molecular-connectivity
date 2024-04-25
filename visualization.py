@@ -203,7 +203,7 @@ def plot_distributions(list_of_data,
         else:
             stats = df.pairwise_tests(**kwargs_stats)
         stats.to_excel(f'{os.path.splitext(save_path)[0]}.xlsx', index=False)
-    plt.close()
+    # plt.close()
 
 
 def colorcoded_stripplot(df, x, y, hue, fig, ax, cmap=cc.cm.coolwarm, vmin=None, vmax=None, cbar_label=''):
