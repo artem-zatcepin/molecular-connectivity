@@ -1,3 +1,4 @@
+from pathlib import Path
 import numpy as np
 import pandas as pd
 
@@ -9,6 +10,7 @@ class Atlas:
     def __init__(self,
                  atlas_dir,
                  atlas_name=None,):
+        atlas_dir = Path(atlas_dir)
         self.dir = atlas_dir
         if atlas_name is None:
             self.name = atlas_dir.name
@@ -45,16 +47,16 @@ class Atlas:
                     network_regions = legend.loc[legend[network_name] == 1]['BrainRegion'].to_list()
                     self.networks[network_name.split()[1]] = network_regions
         except (FileNotFoundError, pd.errors.ParserError):
-            # try
-            self.legend_path = atlas_dir / f'{self.name}.txt'
-            legend = pd.read_csv(self.legend_path, sep='\t', header=None)
-            self.legend = legend.set_index(0).to_dict()[2]
-            self.vois = list(self.legend.keys())
-        except NotADirectoryError:
-            self.legend_path = None
-            self.vois = np.unique(self.arr).astype('uint16')
-            self.vois = self.vois[self.vois != 0]  # exclude the zero VOI (non-segmented area)
-            self.legend = pd.Series(self.vois, index=self.vois).to_dict()
+            try:
+                self.legend_path = atlas_dir / f'{self.name}.txt'
+                legend = pd.read_csv(self.legend_path, sep='\t', header=None)
+                self.legend = legend.set_index(0).to_dict()[2]
+                self.vois = list(self.legend.keys())
+            except (FileNotFoundError, NotADirectoryError):
+                self.legend_path = None
+                self.vois = np.unique(self.arr).astype('uint16')
+                self.vois = self.vois[self.vois != 0]  # exclude the zero VOI (non-segmented area)
+                self.legend = pd.Series(self.vois, index=self.vois).to_dict()
 
         # Generate mask
         self.mask = {}
