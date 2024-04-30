@@ -16,16 +16,28 @@ class Cohort:
 
     def __init__(self,
                  nifti_image_list,
+                 features_path=None,  # excel path
+                 features_name_col='name',  # column that includes img names (exactly like in self.names)
                  cohort_name=None,):
 
-        self.nim_paths = nifti_image_list
+        self.nim_paths = [Path(nim_path) for nim_path in nifti_image_list]
         self.nims = [nib.squeeze_image(nib.load(path)) for path in self.nim_paths]
+        self.names = []
+        for nim_path in self.nim_paths:
+            if nim_path.suffix == '.gz':
+                nim_path = nim_path.with_suffix('')
+            self.names.append(nim_path.stem)
+        #self.names = [path.stem for path in self.nim_paths]
         if cohort_name is None:
             self.name = self.nim_paths[0].parent.name
         else:
             self.name = cohort_name
-        self.names = [path.stem for path in self.nim_paths]
         self.n = len(self)
+        if features_path is not None:
+            df = pd.read_excel(features_path)
+            self.given_features = df[df[features_name_col].isin(self.names)].set_index(features_name_col)
+            assert len(self.given_features) == len(self.names), f'Not all subjects are in {os.path.basename(features_path)}'
+
     def __len__(self):
         return len(self.nim_paths)
     def __str__(self):
@@ -113,19 +125,67 @@ class Cohort:
             return im_regs
 
         # FreeSurfer?
+    def reorient_to_atlas(self, atlas, verbose=False, save_path=None, set_atlas_affine=False):
+        target_ornt = nib.orientations.io_orientation(atlas.nim.affine)
+        if verbose: print(f'Target orientation: {nib.orientations.aff2axcodes(atlas.nim.affine)}')
+        for i, nim in enumerate(self.nims):
+            input_ornt = nib.orientations.io_orientation(nim.affine)
+            transform = nib.orientations.ornt_transform(input_ornt, target_ornt)
+            if verbose: print(f'Image {self.names[i]} with orientation {nib.orientations.aff2axcodes(nim.affine)} is reoriented')
+            self.nims[i] = nim.as_reoriented(transform)
+            if set_atlas_affine:
+                self.nims[i] = nib.Nifti1Image(dataobj=nim.dataobj, affine=atlas.nim.affine, header=nim.header)
+            if save_path is not None:
+                if not os.path.exists(save_path):
+                    os.mkdir(save_path)
+                nib.save(self.nims[i], (Path(save_path) / self.names[i]).with_suffix('.nii.gz'))
 
-    def scale(self, atlas, label=1, feature='mean', save_path=None, inplace=True):
-        self.scaling_factors = [f.extract(arr, atlas, label=label, feature=feature) for arr in self.nim_arrs]
+    def scale(self, atlas=None, label=1, feature='mean', inj_dose_col='', weight_col='', inj_dose_unit='MBq', weight_unit='kg', save_path=None):
+        # percent_ID scaling
+        if inj_dose_col:
+            self.scaling_factors = np.array(self.given_features.loc[self.names, inj_dose_col])
+            if inj_dose_unit == 'MBq':
+                self.scaling_factors *= 1000
+            elif inj_dose_unit == 'kBq':
+                pass
+            else:
+                raise KeyError('Unrecognized unit for injected dose')
+            print(f'Injected dose in {inj_dose_unit}')
+            self.scaling_feature_name = 'percent_ID'
+
+            # SUV scaling
+            if weight_col:
+                weights = np.array(self.given_features.loc[self.names, weight_col])
+                if weight_unit == 'kg':
+                    weights *= 1000
+                elif weight_unit == 'g':
+                    pass
+                else:
+                    raise KeyError('Unrecognized unit for weight')
+                print(f'Subject weight in {weight_unit}')
+                self.scaling_factors /= weights
+                self.scaling_feature_name = 'SUV'
+
+        # VOI scaling (SUV ratio)
+        else:
+            self.scaling_factors = np.array([f.extract(arr, atlas, label=label, feature=feature) for arr in self.nim_arrs])
+            self.scaling_feature_name = f'{atlas.name}_region_{label}_{feature}'
+        if not hasattr(self, 'given_features'):
+            self.given_features = pd.DataFrame()
+        self.given_features['scaling_factor'] = self.scaling_factors
+
+        # perform the scaling
         for i in range(self.n):
             self.nim_arrs[i] /= self.scaling_factors[i]
             self.nims[i] = nib.Nifti1Image(self.nim_arrs[i], self.nims[i].affine, self.nims[i].header)  # think about keeping DICOM header
             if save_path is not None:
-                nib.save(self.nims[i], (save_path / self.names[i]).with_suffix('.nii'))
-        self.scaling_feature_name = feature
+                nib.save(self.nims[i], (Path(save_path) / self.names[i]).with_suffix('.nii.gz'))
 
     def extract_features(self, atlas, feature='mean', labels='all', inplace=True, save_path=None, **extraction_kwargs):
         # provide list of labels (=VOIs) if only a subset of VOIs is needed
         # try with own method first (e.g. "mean" with numpy), otherwise fallback to pyradiomics
+        for nim in self.nims:
+            assert (nim.affine == atlas.nim.affine).all()
         if labels == 'all':
             labels = atlas.vois
         extracted_features = []
@@ -138,6 +198,12 @@ class Cohort:
             self.extracted_feature_name = feature
         else:
             return extracted_features
+        #voi_col_names = {old:f'VOI_{new}' for old, new in zip(extracted_features.columns, extracted_features.columns)}
+        #self.combined_features = pd.merge(self.given_features, extracted_features.rename(columns=voi_col_names), left_index=True, right_index=True)
+        self.combined_features = pd.merge(self.given_features, extracted_features, left_index=True, right_index=True)
+        self.combined_features_long = pd.melt(self.combined_features, id_vars=self.given_features.columns,
+                                              value_vars=extracted_features.columns, var_name='VOI',
+                                              value_name=feature, ignore_index=False)
         if save_path is not None:
             extracted_features.T.to_excel(save_path)
 
