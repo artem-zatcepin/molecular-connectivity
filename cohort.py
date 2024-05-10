@@ -14,15 +14,18 @@ import functions as f
 
 class Cohort:
 
+    # features_name_col (string): column that includes img names (column values must be string that are contained in self.names.
+    # E.g. if self.names=['sub-0001', 'sub-0002'] your identifier column might be df['features_name_col']=['0001', '0002'])
     def __init__(self,
                  nifti_image_list,
                  features_path=None,  # excel path
-                 features_name_col='name',  # column that includes img names (exactly like in self.names)
+                 features_name_col='name',
                  cohort_name=None,):
 
         self.nim_paths = [Path(nim_path) for nim_path in nifti_image_list]
         self.nims = [nib.squeeze_image(nib.load(path)) for path in self.nim_paths]
         self.names = []
+        self.given_features = pd.DataFrame()
         for nim_path in self.nim_paths:
             if nim_path.suffix == '.gz':
                 nim_path = nim_path.with_suffix('')
@@ -34,9 +37,21 @@ class Cohort:
             self.name = cohort_name
         self.n = len(self)
         if features_path is not None:
-            df = pd.read_excel(features_path)
-            self.given_features = df[df[features_name_col].isin(self.names)].set_index(features_name_col)
-            assert len(self.given_features) == len(self.names), f'Not all subjects are in {os.path.basename(features_path)}'
+            self.features_path = features_path
+            self.features_name_col = features_name_col
+            df = pd.read_excel(features_path).set_index(features_name_col)
+            valid_inds = []
+            for name in self.names:
+                occurence_count = 0
+                for name_in_df in df.index:
+                    if name_in_df in name:
+                        occurence_count += 1
+                        if occurence_count > 1:
+                            raise Exception(f'Name {name} was found in column {features_name_col} more than one time. For each image, please ensure a unique row in your input table')
+                        valid_inds.append(name_in_df)
+                if occurence_count == 0:
+                    raise Exception(f'Name {name} was not found in column {features_name_col}. For each image, please ensure a unique row in your input table')
+            self.given_features = df.loc[valid_inds]
 
     def __len__(self):
         return len(self.nim_paths)
@@ -44,9 +59,9 @@ class Cohort:
         return f'Cohort {self.name}, n={len(self)}'
 
     @classmethod
-    def multiple_from_random_split(cls, nifti_image_list, n_subjects_per_split, seed=0, allow_overlap=False, cohort_name=None):
+    def multiple_from_random_split(cls, nifti_image_list, n_subjects_per_split, features_path=None, features_name_col=None, seed=0, allow_overlap=False, cohort_name=None):
         if len(nifti_image_list) < n_subjects_per_split:
-            return Cohort(nifti_image_list, cohort_name=cohort_name)
+            return Cohort(nifti_image_list, features_path=features_path, features_name_col=features_name_col, cohort_name=cohort_name)
         elif allow_overlap:
             # EXPERIMENTAL: have to double-check
             nifti_image_set = set(nifti_image_list)
@@ -59,7 +74,7 @@ class Cohort:
             random.seed(seed)
             for i in range(n_subcohorts):
                 sample_set = set(random.sample(sorted(nifti_image_set), n_subjects_per_split))
-                subcohorts.append(cls(sorted(sample_set), cohort_name=f'{cohort_name}_{i}'))
+                subcohorts.append(cls(sorted(sample_set), features_path=features_path, features_name_col=features_name_col, cohort_name=f'{cohort_name}_{i}'))
                 set_to_remove = set(sorted(sample_set)[overlap:])
                 nifti_image_set -= set_to_remove
             return subcohorts
@@ -125,6 +140,16 @@ class Cohort:
             return im_regs
 
         # FreeSurfer?
+
+    def reorient_to_atlas_x(self, atlas, save_path=None, **kwargs):
+
+        for i, nim in enumerate(self.nims):
+            self.nims[i] = f.reorient_to_target(input_nifti=nim, target_nifti=atlas.nim, **kwargs)
+            if save_path is not None:
+                if not os.path.exists(save_path):
+                    os.mkdir(save_path)
+                nib.save(self.nims[i], (Path(save_path) / self.names[i]).with_suffix('.nii.gz'))
+
     def reorient_to_atlas(self, atlas, verbose=False, save_path=None, set_atlas_affine=False):
         target_ornt = nib.orientations.io_orientation(atlas.nim.affine)
         if verbose: print(f'Target orientation: {nib.orientations.aff2axcodes(atlas.nim.affine)}')
@@ -170,8 +195,6 @@ class Cohort:
         else:
             self.scaling_factors = np.array([f.extract(arr, atlas, label=label, feature=feature) for arr in self.nim_arrs])
             self.scaling_feature_name = f'{atlas.name}_region_{label}_{feature}'
-        if not hasattr(self, 'given_features'):
-            self.given_features = pd.DataFrame()
         self.given_features['scaling_factor'] = self.scaling_factors
 
         # perform the scaling
@@ -207,8 +230,14 @@ class Cohort:
         if save_path is not None:
             extracted_features.T.to_excel(save_path)
 
-    def calculate_connectivity(self, **kwargs):
-        self.connectivity = Connectivity(feature_df=self.extracted_features, **kwargs)
+    def calculate_connectivity(self,
+                               covariates=None,  # list
+                               **kwargs):
+        if covariates is None:
+            cov_df = None
+        else:
+            cov_df = self.given_features[covariates].copy()
+        self.connectivity = Connectivity(feature_df=self.extracted_features, covariate_df=cov_df, **kwargs)
 
     def calculate_cds(self, ref_cohort, subnetwork_name=None):
         # CDS = Connectivity Deviation Score
