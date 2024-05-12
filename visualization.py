@@ -3,6 +3,7 @@ import pandas as pd
 import pingouin as pg
 import nibabel as nib
 import os
+import warnings
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -18,6 +19,7 @@ from PIL import Image
 
 from atlas import Atlas
 from connectivity import Network, BetweenNetwork
+import functions as f
 
 
 def plot3d_connectivity_on_template(network,
@@ -43,7 +45,11 @@ def plot3d_connectivity_on_template(network,
     # INPUT CHECK
     if not hasattr(atlas, 'voi_centers_df'):
         atlas.find_voi_centers()
-    assert np.array_equal(template_nim.affine, atlas.nim.affine), 'template and atlas have different spacings'
+    if not np.array_equal(template_nim.affine, atlas.nim.affine):
+        template_nim = f.reorient_to_target(input_nifti=template_nim, target_nifti=atlas.nim)
+        warnings.warn('Warning: template for 3D plotting and atlas do not have the same affine, '
+                      'your template has been reoriented to the atlas. Check the resulting template-atlas matching visually.')
+
     template_arr = np.squeeze(template_nim.get_fdata())
 
     # PLOT TEMPLATE
@@ -138,6 +144,7 @@ def axisEqual3D(ax):
 
 def plot_distributions(list_of_data,
                        x='network_name', y='abs_value', hue='value',
+                       simplified=True,
                        vmin=None, vmax=None,
                        cmap=cc.cm.coolwarm, hue_vmin=None, hue_vmax=None,
                        xlabels=None, ylabel=None, cbar_label='',
@@ -181,8 +188,11 @@ def plot_distributions(list_of_data,
                                          transform=ax.transData))
 
     # COLORCODED STRIPPLOT
-    colorcoded_stripplot(df=df, x=x, y=y, hue=hue, fig=fig, ax=ax,
-                         cmap=cmap, vmin=hue_vmin, vmax=hue_vmax, cbar_label=cbar_label)
+    if simplified:
+        sns.stripplot(data=df, x=x, y=y, color='k', alpha=0.05, size=1, ax=ax)
+    else:
+        colorcoded_stripplot(df=df, x=x, y=y, hue=hue, fig=fig, ax=ax,
+                             cmap=cmap, vmin=hue_vmin, vmax=hue_vmax, cbar_label=cbar_label)
 
     # ADDITIONAL SETTINGS
     ax.set_ylim([vmin, vmax])
