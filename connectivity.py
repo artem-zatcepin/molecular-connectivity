@@ -211,10 +211,17 @@ class Connectivity:
             matrix = self.calculate_connectivity_single_bootstrap_sample(self.feature_df)
             matrices = np.array([matrix])
             return matrix, matrices
-        np.random.seed(self.seed)
+        if not isinstance(self.seed, list):
+            np.random.seed(self.seed)  # compatibility addition
         matrices = []
         for i in range(self.n_boots):
-            boot_sample = self.draw_bootstrap_sample(self.n_subjects, self.n_min_unique_elements)
+            if isinstance(self.seed, list):
+                seed = self.seed[i]  # compatibility addition
+            else:
+                seed = None  # compatibility addition
+            boot_sample = self.draw_bootstrap_sample(self.n_subjects, self.n_min_unique_elements, random_seed=seed)
+            #print(seed)
+            #print(boot_sample)
             boot_feature_df = self.feature_df.iloc[boot_sample]
             matrix = self.calculate_connectivity_single_bootstrap_sample(boot_feature_df)
             matrices.append(matrix)
@@ -232,11 +239,18 @@ class Connectivity:
             if self.n_boots == 1 or self.n_boots is None:
                 K, B = self.calculate_linear_fit_single_bootstrap_sample(self.feature_df)
                 return K, B
-            np.random.seed(self.seed)
+            if not isinstance(self.seed, list):
+                np.random.seed(self.seed)
             Ks = []
             Bs = []
             for i in range(self.n_boots):
-                boot_sample = self.draw_bootstrap_sample(self.n_subjects, self.n_min_unique_elements)
+                if isinstance(self.seed, list):
+                    seed = self.seed[i]  # compatibility addition
+                else:
+                    seed = None  # compatibility addition
+                boot_sample = self.draw_bootstrap_sample(self.n_subjects, self.n_min_unique_elements, random_seed=seed)
+                #print(seed)
+                #print(boot_sample)
                 boot_feature_df = self.feature_df.iloc[boot_sample]
                 K, B = self.calculate_linear_fit_single_bootstrap_sample(boot_feature_df)
                 Ks.append(K)
@@ -351,14 +365,20 @@ class Connectivity:
                 self.subnetworks_nonthr[subnetwork_nonthr.name] = subnetwork_nonthr
 
     @staticmethod
-    def draw_bootstrap_sample(n_subjects, n_min_unique_elements=3):
+    def draw_bootstrap_sample(n_subjects, n_min_unique_elements=3, random_seed=None):
+        if random_seed is not None:
+            np.random.seed(random_seed)  # compatibility addition
         bootstrap_sample = np.random.choice(n_subjects, size=n_subjects, replace=True)
         n_unique_elements = 0
         while n_unique_elements < n_min_unique_elements:
             n_unique_elements = len(np.unique(bootstrap_sample))
             if n_unique_elements < n_min_unique_elements:
+                random_seed += 1
+                np.random.seed(random_seed)  # compatibility addition
                 bootstrap_sample = np.random.choice(n_subjects, size=n_subjects, replace=True)
             else:
+                #print(random_seed)
+                #print(bootstrap_sample)
                 return bootstrap_sample
 
 
