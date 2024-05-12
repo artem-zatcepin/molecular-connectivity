@@ -1,4 +1,5 @@
-from functions import linreg
+from functions import linreg, get_correlation_matrix
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -7,7 +8,6 @@ import pingouin as pg
 from sklearn.preprocessing import StandardScaler
 from sklearn.covariance import GraphicalLassoCV
 import sklearn.linear_model
-
 from nilearn.connectome import ConnectivityMeasure
 
 
@@ -117,7 +117,7 @@ class Connectivity:
 
     def __init__(self,
                  feature_df: pd.DataFrame,
-                 covariates_df=None,  # NOT IMPLEMENTED
+                 covariate_df=None,
                  kind='correlation',
                  estimator=None,
                  corr_method='pearson',
@@ -130,7 +130,7 @@ class Connectivity:
                  ):
 
         self.feature_df = feature_df
-        self.covariates_df = covariates_df
+        self.covariate_df = covariate_df
 
         self.kind = kind
         self.estimator = estimator
@@ -163,22 +163,17 @@ class Connectivity:
 
     # TODO: Covariates
 
-    def calculate_connectivity_single_bootstrap_sample(self, feature_df):
+    def calculate_connectivity_single_bootstrap_sample(self, feature_df, covariate_df):
         if self.estimator is None:
-            if self.kind == 'correlation':
-                matrix = feature_df.corr(self.corr_method).values
-            elif self.kind == 'partial correlation':
-                # we cannot obtain p-values using pg.partial_corr since n < k in our case
-                # where n is sample size, k is number of covariates, so dof = n - k - 2 < 0 and
-                # we get a negative value under the sqrt (see pg.partial_corr)
-                if self.corr_method == 'spearman':
-                    raise NotImplementedError
-                elif self.corr_method == 'pearson':
-                    matrix = feature_df.pcorr().values
-            else:
-                raise Exception(f'{self.kind} cannot be calculated for the selected estimator')
+
+            matrix = get_correlation_matrix(data=feature_df,
+                                            cov_df=covariate_df,
+                                            kind=self.kind,
+                                            method=self.corr_method)
 
         else:
+            if covariate_df is not None:
+                warnings.warn('Warning: This type of correlation matrix calculation is not implemented with covariates. The covariates you provided were ignored')
             scaler = StandardScaler()
             boot_features_df = scaler.fit_transform(feature_df)
             connectivity_measure = ConnectivityMeasure(cov_estimator=self.estimator,
@@ -208,7 +203,7 @@ class Connectivity:
 
     def calculate_connectivity(self):
         if self.n_boots == 1 or self.n_boots is None:
-            matrix = self.calculate_connectivity_single_bootstrap_sample(self.feature_df)
+            matrix = self.calculate_connectivity_single_bootstrap_sample(self.feature_df, covariate_df=self.covariate_df)
             matrices = np.array([matrix])
             return matrix, matrices
         np.random.seed(self.seed)
@@ -216,7 +211,11 @@ class Connectivity:
         for i in range(self.n_boots):
             boot_sample = self.draw_bootstrap_sample(self.n_subjects, self.n_min_unique_elements)
             boot_feature_df = self.feature_df.iloc[boot_sample]
-            matrix = self.calculate_connectivity_single_bootstrap_sample(boot_feature_df)
+            if self.covariate_df is None:
+                boot_covariate_df = None
+            else:
+                boot_covariate_df = self.covariate_df.iloc[boot_sample]
+            matrix = self.calculate_connectivity_single_bootstrap_sample(boot_feature_df, covariate_df=boot_covariate_df)
             matrices.append(matrix)
         matrices = np.array(matrices, dtype=np.float32)
         mean_matrix = np.mean(matrices, axis=0)
