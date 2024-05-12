@@ -46,7 +46,7 @@ class Atlas:
                 for network_name in network_names:
                     network_regions = legend.loc[legend[network_name] == 1]['BrainRegion'].to_list()
                     self.networks[network_name.split()[1]] = network_regions
-        except (FileNotFoundError, pd.errors.ParserError):
+        except (FileNotFoundError, NotADirectoryError, pd.errors.ParserError):
             try:
                 self.legend_path = atlas_dir / f'{self.name}.txt'
                 legend = pd.read_csv(self.legend_path, sep='\t', header=None)
@@ -78,7 +78,6 @@ class Atlas:
             for i in range(self.n_dim):
                 voi_center.append(np.mean(self.mask[voi][i]))
             voi_centers.append(voi_center)
-        #self.voi_centers_df = pd.DataFrame(np.array(voi_centers), index=self.vois, columns=['z', 'y', 'x'])
         self.voi_centers_df = pd.DataFrame(np.array(voi_centers), index=self.vois, columns=['x', 'y', 'z'])
 
 
