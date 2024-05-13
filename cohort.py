@@ -202,6 +202,8 @@ class Cohort:
             self.nim_arrs[i] /= self.scaling_factors[i]
             self.nims[i] = nib.Nifti1Image(self.nim_arrs[i], self.nims[i].affine, self.nims[i].header)  # think about keeping DICOM header
             if save_path is not None:
+                if not os.path.exists(save_path):
+                    os.mkdir(save_path)
                 nib.save(self.nims[i], (Path(save_path) / self.names[i]).with_suffix('.nii.gz'))
 
     def extract_features(self, atlas, feature='mean', labels='all', inplace=True, save_path=None, **extraction_kwargs):
