@@ -1,4 +1,4 @@
-from functions import linreg, get_correlation_matrix
+from functions import linreg, get_correlation_matrix, check_for_infs_in_matrix
 import warnings
 
 import numpy as np
@@ -163,6 +163,7 @@ class Connectivity:
 
     # TODO: Covariates
 
+    @np.errstate(invalid='raise', divide='raise')
     def calculate_connectivity_single_bootstrap_sample(self, feature_df, covariate_df):
         if self.estimator is None:
 
@@ -225,6 +226,8 @@ class Connectivity:
             matrix = self.calculate_connectivity_single_bootstrap_sample(boot_feature_df, covariate_df=boot_covariate_df)
             matrices.append(matrix)
         matrices = np.array(matrices, dtype=np.float32)
+        #if self.fisher_transf:
+        #    matrices = check_for_infs_in_matrix(matrices)
         mean_matrix = np.mean(matrices, axis=0)
         #mean_matrix = np.mean(np.ma.masked_invalid(np.array(matrices)), axis=0)
         return mean_matrix, matrices
