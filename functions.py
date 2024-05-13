@@ -72,6 +72,17 @@ def get_correlation_matrix(data: pd.DataFrame,
     else:
         raise Exception(f'{kind} cannot be calculated for the selected estimator')
 
+def check_for_infs_in_matrix(matrix):  # matrix is a 3D numpy array (3rd dimension represents individual bootstraps)
+    inds_neg_inf = np.where(matrix == -np.inf)
+    inds_pos_inf = np.where(matrix == np.inf)
+    if len(inds_neg_inf[0]) > 0:
+        matrix[inds_neg_inf] = -10
+        warnings.warn("Warning: Fisher's Z is -inf in at least one of the bootstraps. Replacing with -10. Your sample might be too small.")
+    if len(inds_pos_inf[0]) > 0:
+        matrix[inds_pos_inf] = 10
+        warnings.warn("Warning: Fisher's Z is inf in at least one of the bootstraps. Replacing with 10. Your sample might be too small.")
+    return matrix
+
 def get_cols_with_zero_variance(df: pd.DataFrame):
     zero_variance_cols = []
     for col in df.columns:
