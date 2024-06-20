@@ -18,14 +18,13 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import colorcet as cc
 from PIL import Image
 
-from atlas import Atlas
+from atlas import Atlas, AggregatedAtlas
 from connectivity import Network, BetweenNetwork
 import functions as f
 
-
 def plot3d_connectivity_on_template(network,
                                     template_nim,
-                                    atlas: Atlas,
+                                    atlas: Atlas | AggregatedAtlas,
                                     azim=-60,
                                     elev=30,
                                     template_threshold=0,
