@@ -375,8 +375,9 @@ class Connectivity:
         while n_unique_elements < n_min_unique_elements:
             n_unique_elements = len(np.unique(bootstrap_sample))
             if n_unique_elements < n_min_unique_elements:
-                random_seed += 1
-                np.random.seed(random_seed)  # compatibility addition
+                if random_seed is not None:
+                    random_seed += 1
+                    np.random.seed(random_seed)  # compatibility addition
                 bootstrap_sample = np.random.choice(n_subjects, size=n_subjects, replace=True)
             else:
                 #print(random_seed)
