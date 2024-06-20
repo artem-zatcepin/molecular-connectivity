@@ -11,6 +11,7 @@ from matplotlib import colors
 from matplotlib.colorbar import ColorbarBase
 import seaborn as sns
 from skimage.measure import marching_cubes
+from scipy import stats
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -296,6 +297,55 @@ def plot_matrix(data, data2=None, save_path=None, data_label='', data2_label='',
             fig.savefig(save_path, dpi=400, transparent=True)
 
 
+def voi_boxplots(cohorts, attr='extracted_features',
+                 subnetwork_name='', p_thr=0.05,
+                 save_folder=None, prefix='', return_stats=False):
+
+
+    df = pd.DataFrame()
+    vois = None
+    for cohort in cohorts:
+        df_temp = getattr(cohort, attr).copy()
+        if subnetwork_name:
+            vois = cohort.connectivity.subnetworks[subnetwork_name].vois
+            df_temp = df_temp[vois]
+        vois = df_temp.columns
+        #df_temp = cohort.cds.copy()
+        df_temp['Cohort'] = [cohort.name] * len(df_temp)
+        df_temp['Subject'] = df_temp.index
+        df = pd.concat([df, df_temp], ignore_index=False)
+
+    df_anova = pd.DataFrame()
+    df_ttest = pd.DataFrame()
+    if prefix: prefix = f'_{prefix}'
+    for voi in vois:
+        df_anova_temp = df.anova(dv=voi, between='Cohort')
+        df_anova_temp['VOI'] = [voi] * len(df_anova_temp)
+        df_anova = pd.concat([df_anova, df_anova_temp], ignore_index=True)
+        p = df_anova_temp['p-unc'].to_numpy()[0]
+
+        df_ttest_temp = df.pairwise_tests(dv=voi, between='Cohort')
+        df_ttest_temp['VOI'] = [voi] * len(df_ttest_temp)
+        df_ttest = pd.concat([df_ttest, df_ttest_temp], ignore_index=True)
+
+        if p < p_thr and save_folder is not None:
+            fig, ax = plt.subplots()
+            sns.boxplot(x='Cohort', y=voi, data=df, showfliers=False, ax=ax)
+            sns.stripplot(x='Cohort', y=voi, data=df, color='k', alpha=0.5, s=7, ax=ax)
+            ax.tick_params(axis='both', labelsize=15)
+            fig.tight_layout()
+            fig.savefig(f'{save_folder}/{attr}{prefix}_anova_p_{p:.4f}_voi_{voi}.png', bbox_inches='tight', transparent=True, dpi=200)
+
+    df_anova.set_index('VOI', inplace=True)
+    df_anova.sort_values(by='p-unc', ascending=True, inplace=True)
+    df_anova.to_excel(f'{save_folder}/{attr}{prefix}_anova.xlsx')
+
+    df_ttest.set_index('VOI', inplace=True)
+    df_ttest.sort_values(by='p-unc', ascending=True, inplace=True)
+    df_ttest.to_excel(f'{save_folder}/{attr}{prefix}_ttests.xlsx')
+    if return_stats:
+        return df_anova, df_ttest
+
 def cds_boxplots(cohorts, p_thr=0.05, save_folder=None):
 
     df = pd.DataFrame()
@@ -324,6 +374,102 @@ def cds_boxplots(cohorts, p_thr=0.05, save_folder=None):
     df_anova.set_index('VOI', inplace=True)
     df_anova.sort_values(by='p-unc', ascending=True, inplace=True)
     df_anova.to_excel(f'{save_folder}/cds_anova.xlsx')
+
+
+def feature_pair_correlation(cohorts, feature_x, feature_y, plot=True,
+                             annotate_subjects=False,
+                             color='blue', scatter_size=150, scatter_alpha=0.5,
+                             display_fit_results=True,
+                             loc_fit_results=(0.95, 0.55),
+                             xlabel=None, ylabel=None,
+                             xlim: tuple | None = None,
+                             ylim: tuple | None = None,
+                             p_given=None,
+                             p_given_suffix='',
+                             p_plotting_threshold=1.0,
+                             p_rounding_threshold=0.001,
+                             labelsize=20,
+                             locator_nbins: int | None = 2,  # 2
+                             save_folder=None,
+                             figsize: tuple = (5.0, 4.5),
+                             dpi=200,
+                             ):
+
+    # TODO: warn about missing score for a particular subject
+    df = pd.DataFrame(columns=[str(feature_x), str(feature_y), 'Cohort'])
+    for cohort in cohorts:
+        df_temp = cohort.combined_features[[feature_x, feature_y]].copy()
+        df_temp.columns = [str(col) for col in df_temp.columns]
+        df_temp['Cohort'] = [cohort.name] * len(df_temp)
+        df = pd.concat([df, df_temp])
+
+    feature_x = str(feature_x)
+    feature_y = str(feature_y)
+
+    m, b, r, p, stderr = stats.linregress(df[feature_x], df[feature_y])
+
+    if not plot:
+        return {'feature_x': feature_x, 'feature_y': feature_y, 'r': r, 'p': p, 'slope': m, 'intercept': b}
+
+    if p_given is not None:
+        p_thr = p_given
+        p_given_suffix = f'_p{p_given_suffix}{p_given:.3f}'
+    else:
+        p_thr = p
+
+    if p_thr < p_plotting_threshold:
+        fig, ax = plt.subplots(figsize=figsize)
+        sns.regplot(data=df,
+                    x=feature_x,
+                    y=feature_y,
+                    ax=ax,
+                    color=color,
+                    scatter=False,
+                    )
+        sns.scatterplot(data=df,
+                    x=feature_x,
+                    y=feature_y,
+                    style='Cohort',
+                    ax=ax,
+                    color=color,
+                    s=scatter_size,
+                    alpha=scatter_alpha,)
+        if xlabel is None:
+            xlabel = feature_x
+        if ylabel is None:
+            ylabel = feature_y
+        ax.set_xlabel(xlabel, fontsize=labelsize, fontweight='bold')
+        ax.set_ylabel(ylabel, fontsize=labelsize, fontweight='bold')
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        ax.grid(False)
+        ax.tick_params(axis='both', labelsize=labelsize)
+        if display_fit_results:
+            if p < p_rounding_threshold:
+                p_str = f'p < {p_rounding_threshold}'
+            else:
+                p_str = f'p = {p:.3f}'
+            infos = f'{p_str}\n' \
+                    f'r = {r:.3f}\n' \
+                    f'm = {m:.2f}\n' \
+                    f'b = {b:.2f}\n'
+            ax.text(*loc_fit_results, s=infos, color='k', ha='right', transform=ax.transAxes)
+
+        if annotate_subjects:
+            for x, y, name in zip(df[feature_x], df[feature_y], df.index):
+                ax.text(x=x, y=y, s=name, color='k')
+        plt.locator_params(axis='both', nbins=locator_nbins)
+        fig.tight_layout()
+
+        if save_folder is not None:
+            if not os.path.exists(save_folder):
+                os.mkdir(save_folder)
+            out_name = f'{save_folder}/corr_{feature_x}_{feature_y}_p{p:.4f}{p_given_suffix}.png'
+            fig.savefig(out_name, transparent=True, bbox_inches='tight', dpi=dpi)
+
+    #plt.close()
+
+
 
 
 
