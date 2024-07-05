@@ -60,12 +60,17 @@ class NetworkBase:
             self.std = np.std(matrix_flat)
             self.min = np.min(matrix_flat)
             self.max = np.max(matrix_flat)
+            self.percentile_25 = np.percentile(matrix_flat, 25)
+            self.percentile_75 = np.percentile(matrix_flat, 75)
 
             self.abs_mean = np.mean(matrix_flat_abs)
             self.abs_median = np.median(matrix_flat_abs)
             self.abs_std = np.std(matrix_flat_abs)
             self.abs_min = np.min(matrix_flat_abs)
             self.abs_max = np.max(matrix_flat_abs)
+            self.abs_percentile_25 = np.percentile(matrix_flat_abs, 25)
+            self.abs_percentile_75 = np.percentile(matrix_flat_abs, 75)
+
         except ValueError:
             self.min = 0
             self.max = 0
