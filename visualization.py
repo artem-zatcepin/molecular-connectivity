@@ -402,7 +402,9 @@ def feature_pair_correlation(cohorts, feature_x, feature_y, plot=True,
         df_temp.columns = [str(col) for col in df_temp.columns]
         df_temp['Cohort'] = [cohort.name] * len(df_temp)
         df = pd.concat([df, df_temp])
-
+    if df.isnull().values.any():
+        warnings.warn('One or more subjects have missing values')
+        df = df.dropna()
     feature_x = str(feature_x)
     feature_y = str(feature_y)
 
