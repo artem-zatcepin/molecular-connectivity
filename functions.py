@@ -6,7 +6,7 @@ import numba
 import warnings
 
 
-def extract(arr, atlas, label=1, feature='mean', percent_hottest=0.2):
+def extract(arr, atlas, label=1, feature='mean', percent_hottest=0.2, n_hottest=None):
     inds = atlas.mask[label]
     try:
         extraction_function = getattr(np, feature)
@@ -15,7 +15,8 @@ def extract(arr, atlas, label=1, feature='mean', percent_hottest=0.2):
     except AttributeError:
         if feature == 'hottest_mean':
             arr_flat = arr[inds]
-            n_hottest = int(percent_hottest * len(arr_flat))
+            if n_hottest is None:
+                n_hottest = int(percent_hottest * len(arr_flat))
             return np.mean(np.sort(arr_flat)[::-1][:n_hottest])
         else:
             raise NotImplementedError('Fallback to PyRadiomics is not implemented yet. Choose a valid numpy function')
