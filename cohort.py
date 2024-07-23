@@ -99,7 +99,7 @@ class Cohort:
             random.seed(seed)
             for i in range(n_subcohorts):
                 sample_set = set(random.sample(sorted(nifti_image_set), n_subjects_per_split))
-                subcohorts.append(cls(sorted(sample_set), cohort_name=f'{cohort_name}_{i}'))
+                subcohorts.append(cls(sorted(sample_set), features_path=features_path, features_name_col=features_name_col, cohort_name=f'{cohort_name}_{i}'))
                 nifti_image_set -= sample_set
             return subcohorts
 
