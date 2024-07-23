@@ -198,13 +198,16 @@ def plot_distributions(list_of_data,
     ax.set_ylim([vmin, vmax])
     ax.set_xlabel(None)
     ax.set_ylabel(ylabel)
-    ax.tick_params(axis='x', labelrotation=45)
+    for label in ax.get_xticklabels():
+        label.set_rotation(45)
+        label.set_ha('right')
+    #ax.tick_params(axis='x', labelrotation=45)
     plt.tight_layout()
 
     if save_path is not None:
         if not os.path.exists(os.path.dirname(save_path)):
             os.mkdir(os.path.dirname(save_path))
-        fig.savefig(save_path, dpi=300, transparent=True)
+        fig.savefig(save_path, dpi=300, transparent=True, bbox_inches='tight')
 
     # CALCULATE STATISTICS
     if save_stats:
