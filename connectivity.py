@@ -131,6 +131,7 @@ class Connectivity:
                  random_state=0,
                  n_min_unique_elements=3,
                  lin_fit_method=None,
+                 kls_dict=None,
                  name=None,
                  ):
 
@@ -141,6 +142,7 @@ class Connectivity:
         self.estimator = estimator
         self.corr_method = corr_method
         self.fisher_transf = fisher_transf
+        self.kls_dict = kls_dict
         self.name = name
 
         # BOOTSTRAPPING ATTRIBUTES
@@ -148,8 +150,16 @@ class Connectivity:
         self.seed = random_state
         self.n_min_unique_elements = n_min_unique_elements
 
-        self.subjects = self.feature_df.index.to_list()
-        self.vois = self.feature_df.columns.to_list()
+        if kind == 'kls' and kls_dict is not None:
+            self.subjects = list(self.kls_dict.keys())
+            self.vois = list(list(self.kls_dict.values())[0].index)
+            for df_1 in kls_dict.values():
+                for df_2 in kls_dict.values():
+                    if df_1.index.to_list() != df_2.index.to_list() or df_1.columns.to_list() != df_2.columns.to_list():
+                        raise Exception('Your KL similarity dataframes use different VOIs and/or do not have the same order')
+        else:
+            self.subjects = self.feature_df.index.to_list()
+            self.vois = self.feature_df.columns.to_list()
         self.n_subjects = len(self.subjects)
         self.n_vois = len(self.vois)
         self.matrix, self.bootstrap_matrices = self.calculate_connectivity()
@@ -208,6 +218,19 @@ class Connectivity:
         return K, B
 
     def calculate_connectivity(self):
+
+        if self.kind == 'kls' and self.kls_dict is not None:
+            matrices = []
+            for df in self.kls_dict.values():
+                matrix = df.to_numpy()
+                np.fill_diagonal(matrix, 0)
+                if self.fisher_transf:
+                    matrix = np.arctanh(matrix)
+                matrices.append(matrix)
+            matrices = np.array(matrices)
+            mean_matrix = np.mean(matrices, axis=0)
+            return mean_matrix, matrices
+
         if self.n_boots == 1 or self.n_boots is None:
             matrix = self.calculate_connectivity_single_bootstrap_sample(self.feature_df, covariate_df=self.covariate_df)
             matrices = np.array([matrix])

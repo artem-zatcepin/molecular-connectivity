@@ -3,6 +3,8 @@ import pandas as pd
 import nibabel as nib
 import pingouin as pg
 import numba
+from sklearn.linear_model import LinearRegression
+from scipy import stats
 import warnings
 
 
@@ -31,6 +33,7 @@ def get_correlation_matrix(data: pd.DataFrame,
                            cov_df=None,
                            kind='correlation',
                            method='pearson',
+                           new_partial=True,
                            ):
     if cov_df is None:
         full_df = data
@@ -41,6 +44,17 @@ def get_correlation_matrix(data: pd.DataFrame,
     if kind == 'correlation':
         if cov_df is None:
             return data.corr(method).values
+
+        elif new_partial:
+            df_resid = data.copy()
+            if len(cov_df.columns) != 0:
+                for col in data.columns:
+                    y = data[col].values
+                    X = cov_df.values
+                    reg = LinearRegression().fit(X, y)
+                    df_resid[col] = y - reg.predict(X)
+            return df_resid.corr(method).values
+
         else:
             warnings.warn('Warning: current implementation of full correlation matrix calculation with covariates '
                           'is very slow. Consider reducing N bootstraps')
@@ -137,3 +151,57 @@ def cds_per_voi(features, K, B):
     for key, D in Ds.items():
         df_sum_Ds.loc[key] = D.sum(axis=1, skipna=True, min_count=1)
     return df_sum_Ds
+
+
+# symmetric kullback-leibler divergence
+def symmetric_kl(pdf_p, pdf_q, sample_points):
+
+    p = pdf_p(sample_points)
+    q = pdf_q(sample_points)
+
+    # Ensure no zero values for caluclation
+    p = np.where(p == 0, 1e-10, p)
+    q = np.where(q == 0, 1e-10, q)
+
+    return stats.entropy(p, q) + stats.entropy(q, p)
+
+def compute_adjacency_matrix(df, gene_col='value', clusters_col='clusters', n_sample_points=1000):
+    # Input
+    # df: gene expression dataframe containing cluster information
+    # gene_col: column containing expression levels of the gene/score of interest
+    # clusters_col: column containing cluster labels
+
+    # Returns
+    # adjacency matrix (np.ndarray)
+
+    clusters = list(df[clusters_col].unique())
+    n_clusters = len(clusters)
+    adjacency_matrix = np.zeros((n_clusters, n_clusters))
+
+    # Generate sample points for KDE evaluation
+    sample_points = np.linspace(df[gene_col].min(), df[gene_col].max(), n_sample_points)
+    for i, cluster1 in enumerate(clusters):
+        values_1 = df.loc[df[clusters_col] == cluster1, gene_col].to_numpy()
+        pdf_1 = stats.gaussian_kde(values_1)
+
+        for j, cluster2 in enumerate(clusters):
+            values_2 = df.loc[df[clusters_col] == cluster2, gene_col].to_numpy()
+            pdf_2 = stats.gaussian_kde(values_2)
+
+            kld = symmetric_kl(pdf_1, pdf_2, sample_points)
+            similarity = np.exp(-kld)
+
+            adjacency_matrix[i, j] = similarity
+
+    return adjacency_matrix
+
+
+
+
+
+
+
+
+
+
+

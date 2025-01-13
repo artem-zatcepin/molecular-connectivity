@@ -5,6 +5,7 @@ import shutil
 import numpy as np
 import pandas as pd
 import random
+from scipy import stats
 
 import nibabel as nib
 
@@ -17,34 +18,49 @@ class Cohort:
     # features_name_col (string): column that includes img names (column values must be string that are contained in self.names.
     # E.g. if self.names=['sub-0001', 'sub-0002'] your identifier column might be df['features_name_col']=['0001', '0002'])
     def __init__(self,
-                 nifti_image_list,
+                 nifti_image_list=None,
                  features_path=None,  # excel path
                  sheet_name=0,
+                 extracted_features_path=None,
+                 extracted_features_sheet_name=0,
                  features_name_col='name',
+                 features_name_col_type=str,
                  features_not_found_behavior='exception',
                  use_filenames_as_ids=False,
-                 cohort_name=None,):
+                 cohort_name=None, ):
 
-        self.nim_paths = [Path(nim_path) for nim_path in nifti_image_list]
-        self.nims = [nib.squeeze_image(nib.load(path)) for path in self.nim_paths]
-        self.names = []
-        for nim_path in self.nim_paths:
-            if nim_path.suffix == '.gz':
-                nim_path = nim_path.with_suffix('')
-            self.names.append(nim_path.stem)
-        #self.names = [path.stem for path in self.nim_paths]
+        if nifti_image_list is not None:
+            self.nim_paths = [Path(nim_path) for nim_path in nifti_image_list]
+            self.nims = [nib.squeeze_image(nib.load(path)) for path in self.nim_paths]
+            self.names = []
+            self.file_stems = []
+            for nim_path in self.nim_paths:
+                if nim_path.suffix == '.gz':
+                    nim_path = nim_path.with_suffix('')
+                self.file_stems.append(nim_path.stem)
+            #self.names = [path.stem for path in self.nim_paths]
+        elif extracted_features_path is not None:
+            self.extracted_features = pd.read_excel(extracted_features_path, sheet_name=extracted_features_sheet_name, index_col=0)
+            self.file_stems = self.extracted_features.index.to_list()
+            self.nim_paths = None
+            self.nims = None
+            self.names = []
+            self.combined_features = self.extracted_features.copy()
+
         self.given_features = pd.DataFrame(index=self.names)
         if cohort_name is None:
             self.name = self.nim_paths[0].parent.name
         else:
             self.name = cohort_name
-        self.n = len(self)
-        if features_path is not None:
+        if features_path is None:
+            self.names = self.file_stems.copy()
+        else:
             self.features_path = features_path
             self.features_name_col = features_name_col
-            df = pd.read_excel(features_path, sheet_name=sheet_name).set_index(features_name_col)
+            columns_dtypes = {self.features_name_col: features_name_col_type}
+            df = pd.read_excel(features_path, sheet_name=sheet_name, dtype=columns_dtypes).set_index(features_name_col)
             valid_inds = []
-            for name in self.names:
+            for name in self.file_stems:
                 occurence_count = 0
                 for name_in_df in df.index:
                     if str(name_in_df) in name:
@@ -57,13 +73,19 @@ class Cohort:
                         raise Exception(f'Name {name} was not found in column {features_name_col}. For each image, please ensure a unique row in your input table')
                     else:
                         warnings.warn(f'Name {name} was not found in column {features_name_col}.')
+            self.names = valid_inds
             self.given_features = df.loc[valid_inds]
             if use_filenames_as_ids:
-                self.given_features.set_index(pd.Index(self.names), inplace=True)
-        self.combined_features = self.given_features.copy()
+                self.given_features.set_index(pd.Index(self.file_stems), inplace=True)
+        if not hasattr(self, 'extracted_features'):
+            self.combined_features = self.given_features.copy()
+        else:
+            self.combined_features = pd.merge(self.given_features, self.extracted_features,
+                                              how='outer', left_index=True, right_index=True)
+        self.n = len(self)
 
     def __len__(self):
-        return len(self.nim_paths)
+        return len(self.names)
     def __str__(self):
         return f'Cohort {self.name}, n={len(self)}'
     def __eq__(self, other):
@@ -203,6 +225,8 @@ class Cohort:
                 print(f'Subject weight in {weight_unit}')
                 self.scaling_factors /= weights
                 self.scaling_feature_name = 'SUV'
+            else:
+                self.scaling_factors /= 100  # to get percentage of ID
 
         # VOI scaling (SUV ratio)
         else:
@@ -226,20 +250,25 @@ class Cohort:
         # self.combined_features = pd.merge(self.combined_features, self.given_features, how='outer', left_index=True, right_index=True)
 
 
-    def generate_average_image(self, save_path=None):
+    def generate_average_image(self, save_dir=None, add_n_subjects=False):
         aver_arr = np.mean(np.array(self.nim_arrs), axis=0)
         aver_nim = nib.Nifti1Image(dataobj=aver_arr, affine=self.nims[0].affine, header=self.nims[0].header)
-        if save_path is not None:
-            if not os.path.exists(save_path):
-                os.mkdir(save_path)
-            nib.save(aver_nim, (Path(save_path) / f'average_{self.name}').with_suffix('.nii.gz'))
+        if save_dir is not None:
+            if not os.path.exists(save_dir):
+                os.mkdir(save_dir)
+            if add_n_subjects:
+                n_sbj = f'_n={self.n}'
+            else:
+                n_sbj = ''
+            nib.save(aver_nim, (Path(save_dir) / f'average_{self.name}{n_sbj}').with_suffix('.nii.gz'))
 
 
-    def extract_features(self, atlas, feature='mean', labels='all', inplace=True, cols_to_drop=None, save_path=None, **extraction_kwargs):
+    def extract_features(self, atlas, feature='mean', labels='all', inplace=True, cols_to_drop=None, save_path=None, prefix=None, **extraction_kwargs):
         # provide list of labels (=VOIs) if only a subset of VOIs is needed
         # try with own method first (e.g. "mean" with numpy), otherwise fallback to pyradiomics
-        for nim in self.nims:
-            assert (nim.affine == atlas.nim.affine).all()
+        for nim, nim_name in zip(self.nims, self.names):
+            assert (nim.affine == atlas.nim.affine).all(), (f'Affine matrix of image {nim_name} does not equal affine matrix of atlas.'
+                                                            f'\n\nImage affine\n{nim.affine}\n\nAtlas affine\n{atlas.nim.affine}')
         if labels == 'all':
             labels = atlas.vois
         extracted_features = []
@@ -249,17 +278,25 @@ class Cohort:
         extracted_features = pd.DataFrame(data=np.array(extracted_features), index=self.names, columns=labels)
         if cols_to_drop is not None:
             extracted_features.drop(columns=cols_to_drop, inplace=True)
+
+        if prefix is None:
+            prefix = ''
+        else:
+            prefix = f'{prefix}_'
+
         if inplace:
             self.extracted_features = extracted_features
             self.extracted_feature_name = feature
         else:
-            return extracted_features
+            return extracted_features.add_prefix(prefix)
         #voi_col_names = {old:f'VOI_{new}' for old, new in zip(extracted_features.columns, extracted_features.columns)}
         #self.combined_features = pd.merge(self.given_features, extracted_features.rename(columns=voi_col_names), left_index=True, right_index=True)
-        self.combined_features = pd.merge(self.combined_features, extracted_features, how='outer', left_index=True, right_index=True)
-        self.combined_features_long = pd.melt(self.combined_features, id_vars=self.given_features.columns,
-                                              value_vars=extracted_features.columns, var_name='VOI',
-                                              value_name=feature, ignore_index=False)
+
+        if inplace:
+            self.combined_features = pd.merge(self.combined_features, extracted_features.add_prefix(prefix), how='outer', left_index=True, right_index=True)
+            self.combined_features_long = pd.melt(self.combined_features, id_vars=self.given_features.columns,
+                                                  value_vars=extracted_features.add_prefix(prefix).columns, var_name='VOI',
+                                                  value_name=feature, ignore_index=False)
         if save_path is not None:
             if not os.path.exists(os.path.dirname(save_path)):
                 os.mkdir(os.path.dirname(save_path))
@@ -364,6 +401,66 @@ class Cohort:
         #                                       on='VOI', how='outer')
         # TODO: implement "combined_features_long"
 
+    def add_features(self, other=None, feature_names=None, feature_df=None, prefix_to_add=''):
+        if feature_df is not None:
+            df = feature_df.copy()
+        else:
+            if feature_names is not None and other is not None:
+                df = other.combined_features[feature_names].copy()
+            else:
+                raise Exception('Either feature_names or feature_df must be defined')
+
+        df = df.add_prefix(prefix_to_add)
+
+        self.combined_features = self.combined_features.join(df, how='left')
+
+    # Kullback-Leibler similarity
+    def calculate_kls(self, atlas=None, long_df_path=None, feature_col=None, voi_col=None, subject_col=None, n_sample_points=1000):
+        self.kls = {}
+        if self.nim_paths is not None:
+            for arr, name in zip(self.nim_arrs, self.names):
+                adjacency_matrix = np.zeros((len(atlas), len(atlas)))
+                sample_points = np.linspace(np.min(arr), np.max(arr), n_sample_points)
+                for i, voi_1 in enumerate(atlas.vois):
+                    inds_1 = atlas.mask[voi_1]
+                    values_1 = arr[inds_1]
+                    pdf_1 = stats.gaussian_kde(values_1)
+
+                    for j, voi_2, in enumerate(atlas.vois):
+                        inds_2 = atlas.mask[voi_2]
+                        values_2 = arr[inds_2]
+                        pdf_2 = stats.gaussian_kde(values_2)
+
+                        kld = f.symmetric_kl(pdf_1, pdf_2, sample_points)
+                        similarity = np.exp(-kld)
+
+                        adjacency_matrix[i, j] = similarity
+                df_adjacency = pd.DataFrame(data=adjacency_matrix, index=atlas.vois, columns=atlas.vois)
+        elif long_df_path is not None:
+            long_df = pd.read_csv(long_df_path, index_col=0)
+            vois = long_df[voi_col].unique()
+            n_vois = len(vois)
+
+            for subject_name in self.names:
+
+                df_sbj = long_df.loc[long_df[subject_col] == subject_name]
+
+                adjacency_matrix = np.zeros((n_vois, n_vois))
+                sample_points = np.linspace(df_sbj[feature_col].min(), df_sbj[feature_col].max(), n_sample_points)
+                for i, voi_1 in enumerate(vois):
+                    values_1 = df_sbj.loc[df_sbj[voi_col] == voi_1, feature_col].to_numpy()
+                    pdf_1 = stats.gaussian_kde(values_1)
+
+                    for j, voi_2, in enumerate(vois):
+                        values_2 = df_sbj.loc[df_sbj[voi_col] == voi_2, feature_col].to_numpy()
+                        pdf_2 = stats.gaussian_kde(values_2)
+
+                        kld = f.symmetric_kl(pdf_1, pdf_2, sample_points)
+                        similarity = np.exp(-kld)
+
+                        adjacency_matrix[i, j] = similarity
+                df_adjacency = pd.DataFrame(data=adjacency_matrix, index=vois, columns=vois)
+                self.kls[subject_name] = df_adjacency
 
 
 
