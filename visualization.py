@@ -301,9 +301,14 @@ def plot_matrix(data, data2=None, save_path=None, data_label='', data2_label='',
 
 
 def voi_boxplots(cohorts, attr='extracted_features',
-                 subnetwork_name='', p_thr=0.05,
-                 save_folder=None, prefix='', return_stats=False):
+                 subnetwork_name='', p_thr=0.05, p_given_dict=None,
+                 palette=None, color='w',
+                 save_folder=None, prefix='', return_stats=False,
+                 figsize=None,
+                 ):
 
+    if palette is not None:
+        color = None
 
     df = pd.DataFrame()
     vois = None
@@ -326,26 +331,44 @@ def voi_boxplots(cohorts, attr='extracted_features',
         df_anova_temp['VOI'] = [voi] * len(df_anova_temp)
         df_anova = pd.concat([df_anova, df_anova_temp], ignore_index=True)
         p = df_anova_temp['p-unc'].to_numpy()[0]
+        if p_given_dict is not None:
+            p_given = p_given_dict[voi]
+        else:
+            p_given = None
 
-        df_ttest_temp = df.pairwise_tests(dv=voi, between='Cohort')
+        df_ttest_temp = df.pairwise_tests(dv=voi, between='Cohort', effsize='cohen', padjust='fdr_bh')
         df_ttest_temp['VOI'] = [voi] * len(df_ttest_temp)
         df_ttest = pd.concat([df_ttest, df_ttest_temp], ignore_index=True)
 
         if p < p_thr and save_folder is not None:
-            fig, ax = plt.subplots()
-            sns.boxplot(x='Cohort', y=voi, data=df, showfliers=False, ax=ax)
+            p_given_suffix = ''
+            if p_given is not None:
+                if p_given >= p_thr:
+                    continue
+                else:
+                    p_given_suffix = f'_pFDR_{p_given:.4f}_'
+
+            fig, ax = plt.subplots(figsize=figsize)
+            sns.boxplot(x='Cohort', y=voi, data=df, color=color, palette=palette, showfliers=False, ax=ax)
             sns.stripplot(x='Cohort', y=voi, data=df, color='k', alpha=0.5, s=7, ax=ax)
             ax.tick_params(axis='both', labelsize=15)
+            for label in ax.get_xticklabels():
+                label.set_rotation(45)
+                label.set_ha('right')
             fig.tight_layout()
-            fig.savefig(f'{save_folder}/{attr}{prefix}_anova_p_{p:.4f}_voi_{voi}.png', bbox_inches='tight', transparent=True, dpi=200)
+            fig.savefig(f'{save_folder}/{attr}{prefix}_anova_p_{p:.4f}{p_given_suffix}_voi_{voi}.png', bbox_inches='tight', transparent=True, dpi=200)
 
     df_anova.set_index('VOI', inplace=True)
     df_anova.sort_values(by='p-unc', ascending=True, inplace=True)
-    df_anova.to_excel(f'{save_folder}/{attr}{prefix}_anova.xlsx')
+    if p_given_dict is not None:
+        df_anova['pFDR'] = df_anova.index.map(p_given_dict)
 
     df_ttest.set_index('VOI', inplace=True)
     df_ttest.sort_values(by='p-unc', ascending=True, inplace=True)
-    df_ttest.to_excel(f'{save_folder}/{attr}{prefix}_ttests.xlsx')
+
+    if save_folder is not None:
+        df_anova.to_excel(f'{save_folder}/{attr}{prefix}_anova.xlsx')
+        df_ttest.to_excel(f'{save_folder}/{attr}{prefix}_ttests.xlsx')
     if return_stats:
         return df_anova, df_ttest
 
@@ -384,6 +407,7 @@ def feature_pair_correlation(cohorts, feature_x, feature_y, plot=True,
                              color='blue', scatter_size=150, scatter_alpha=0.5,
                              display_fit_results=True,
                              loc_fit_results=(0.95, 0.55),
+                             align_fit_results='right',
                              xlabel=None, ylabel=None,
                              xlim: tuple | None = None,
                              ylim: tuple | None = None,
@@ -418,9 +442,11 @@ def feature_pair_correlation(cohorts, feature_x, feature_y, plot=True,
 
     if p_given is not None:
         p_thr = p_given
+        p_given_str = f'p{p_given_suffix} = {p_given:.3f}\n'
         p_given_suffix = f'_p{p_given_suffix}{p_given:.3f}'
     else:
         p_thr = p
+        p_given_str = ''
 
     if p_thr < p_plotting_threshold:
         fig, ax = plt.subplots(figsize=figsize)
@@ -455,10 +481,11 @@ def feature_pair_correlation(cohorts, feature_x, feature_y, plot=True,
             else:
                 p_str = f'p = {p:.3f}'
             infos = f'{p_str}\n' \
+                    f'{p_given_str}' \
                     f'r = {r:.3f}\n' \
                     f'm = {m:.2f}\n' \
                     f'b = {b:.2f}\n'
-            ax.text(*loc_fit_results, s=infos, color='k', ha='right', transform=ax.transAxes)
+            ax.text(*loc_fit_results, s=infos, color='k', ha=align_fit_results, transform=ax.transAxes)
 
         if annotate_subjects:
             for x, y, name in zip(df[feature_x], df[feature_y], df.index):
@@ -475,8 +502,152 @@ def feature_pair_correlation(cohorts, feature_x, feature_y, plot=True,
     #plt.close()
 
 
+def effsize_barplot(data,
+                    x, y, hue,
+                    ylabel='np2 (effect size)',
+                    ylim=None,
+                    title='',
+                    palette=('#cfcfcf', 'gray', '#a6ba70', '#326c3e'),
+                    save_path=None,
+                    ):
+    fig, ax = plt.subplots()
+    sns.barplot(data=data, x=x, y=y, hue=hue, ax=ax, palette=palette)
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+    if ylim is not None:
+        ax.set_ylim(ylim)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    fig.savefig(save_path, dpi=300, bbox_inches='tight')
 
 
+def plot_combined_bar_strip_spaghetti(
+        ax,  # Pass the ax object directly
+        data: pd.DataFrame,
+        cohort_col: str,
+        timepoint_col: str,
+        subject_col: str,
+        signal_col: str,
+        error_metric='sd',  # Error metric for barplot ('sd', 'ci', etc.)
+        jitter: float = 0  # Set jitter to 0 to align stripplot and spaghetti plot points
+):
+    """
+    Function to plot a combination of barplot, stripplot, and spaghetti plot on a given ax.
+
+    Parameters:
+    - ax: matplotlib.axes.Axes
+        The matplotlib Axes object where the plot will be drawn.
+    - data: pd.DataFrame
+        The input data.
+    - cohort_col: str
+        The column name representing the cohort.
+    - timepoint_col: str
+        The column name representing the timepoint.
+    - subject_col: str
+        The column name representing the subject ID.
+    - signal_col: str
+        The column name representing the signal level.
+    - error_metric: str
+        Error metric for the barplot ('sd' for standard deviation, 'ci' for confidence interval, etc.).
+    - jitter: float
+        The jitter applied to stripplot to avoid overlapping points (set to 0 for no jitter).
+    """
+
+    # Barplot for average signal levels (set edgecolor to black, and use one color for all bars)
+    # sns.barplot(data=data,
+    #             x=cohort_col,
+    #             y=signal_col,
+    #             hue=timepoint_col,
+    #             errorbar=error_metric,
+    #             dodge=True,
+    #             palette=['lightgray'] * len(data[timepoint_col].unique()),  # Same color for all timepoints
+    #             edgecolor='black',  # Black outer contour
+    #             ax=ax)
+    #
+
+    sns.boxplot(data=data,
+                x=cohort_col,
+                y=signal_col,
+                hue=timepoint_col,
+                dodge=True,
+                #palette=['lightgray'] * len(data[timepoint_col].unique()),  # Same color for all timepoints
+                palette=['white', 'lightgray', 'lightskyblue'],
+                #edgecolor='black',  # Black outer contour
+                showfliers=False,
+                ax=ax)
+
+    # Stripplot to show individual data points (black points with alpha=0.5)
+    sns.stripplot(data=data,
+                  x=cohort_col,
+                  y=signal_col,
+                  hue=timepoint_col,
+                  dodge=True,
+                  jitter=jitter,  # No jitter to align the points for the spaghetti plot
+                  color="black",  # All points black
+                  alpha=0.5,  # Transparency for the points
+                  linewidth=1,
+                  edgecolor='black',
+                  ax=ax)
+
+    # Remove legend
+    ax.legend_.remove()
+
+    # Calculate the unique x positions for each combination of cohort and timepoint manually
+    unique_cohorts = data[cohort_col].unique()
+    unique_timepoints = data[timepoint_col].unique()
+    cohort_positions = {cohort: i for i, cohort in enumerate(unique_cohorts)}
+
+    # Calculate dodge correction based on the number of timepoints
+    num_timepoints = len(unique_timepoints)
+    dodge_correction = np.linspace(-0.25, 0.25, num_timepoints)  # Slightly wider dodge to ensure connection
+
+    # Map the positions for each combination of subject, cohort, and timepoint
+    x_positions_map = {}
+    for i, row in data.iterrows():
+        cohort = row[cohort_col]
+        timepoint = row[timepoint_col]
+        cohort_pos = cohort_positions[cohort]  # The baseline cohort position
+        timepoint_idx = list(unique_timepoints).index(timepoint)
+        # Apply dodge correction to center the timepoints around the cohort position
+        x_pos = cohort_pos + dodge_correction[timepoint_idx]
+        x_positions_map[(row[subject_col], cohort, timepoint)] = (x_pos, row[signal_col])
+
+    # Now draw the lines (spaghetti plot)
+    for subject in data[subject_col].unique():
+        subject_data = data[data[subject_col] == subject]
+
+        # Group by cohort to ensure we draw lines only within each cohort
+        for cohort in subject_data[cohort_col].unique():
+            cohort_data = subject_data[subject_data[cohort_col] == cohort]
+
+            # Sort cohort_data by timepoint for proper connection of lines
+            cohort_data = cohort_data.sort_values(by=timepoint_col)
+
+            # Extract the x and y positions for the subject in this cohort
+            x_positions = []
+            y_positions = []
+            for _, row in cohort_data.iterrows():
+                x, y = x_positions_map[(row[subject_col], row[cohort_col], row[timepoint_col])]
+                x_positions.append(x)
+                y_positions.append(y)
+
+            # Draw the spaghetti line connecting the points
+            if x_positions and y_positions:
+                ax.plot(x_positions, y_positions, color='black', alpha=0.5, linewidth=0.8)
+
+    # Adjusting the position and alignment of timepoint labels
+    for i, timepoint in enumerate(unique_timepoints):
+        for cohort in unique_cohorts:
+            cohort_pos = cohort_positions[cohort]
+            timepoint_x_pos = cohort_pos + dodge_correction[i]
+            #ax.text(timepoint_x_pos, ax.get_ylim()[0] + 0.05, timepoint, ha='center', va='bottom', rotation=90)
+
+    # Titles and labels
+    #ax.set_title("Signal Levels across Cohorts and Timepoints with Subject Connections")
+    ax.set_xlabel(None)
+    ax.set_ylabel(signal_col)
+    ax.tick_params(axis='x', rotation=45)
+    #ax.set_ylim(0.5, None)
+    ax.figure.tight_layout()
 
 
 
