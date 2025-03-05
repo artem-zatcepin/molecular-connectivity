@@ -6,6 +6,7 @@ import numba
 from sklearn.linear_model import LinearRegression
 from scipy import stats
 import warnings
+import re
 
 
 def extract(arr, atlas, label=1, feature='mean', percent_hottest=0.2, n_hottest=None):
@@ -145,6 +146,26 @@ def distance_matrix(features, K, B):
         Ds[sbj] = D
     return Ds
 
+def pairwise_cds_distr_params(features=None, K=None, B=None, Ds=None):
+    if Ds is None:
+        Ds = distance_matrix(features, K, B)
+    out_dict = {}
+
+    Ds_list = []
+    for D in Ds.values():
+        np.fill_diagonal(D.to_numpy(), 0)
+        Ds_list.append(D)
+
+    Ds_arr = np.array(Ds_list)
+
+    out_dict['distance_matrix'] = Ds
+    out_dict['median'] = np.median(Ds_arr, axis=0)
+    out_dict['mean'] = np.mean(Ds_arr, axis=0)
+    #out_dict['std'] = np.std(Ds_arr, axis=0)
+    out_dict['percentile_25'] = np.percentile(Ds_arr, 25, axis=0)
+    out_dict['percentile_75'] = np.percentile(Ds_arr, 75, axis=0)
+    return out_dict
+
 def cds_per_voi(features, K, B):
     Ds = distance_matrix(features, K, B)
     df_sum_Ds = pd.DataFrame(index=features.index, columns=K.index, dtype=float)
@@ -152,6 +173,14 @@ def cds_per_voi(features, K, B):
         df_sum_Ds.loc[key] = D.sum(axis=1, skipna=True, min_count=1)
     return df_sum_Ds
 
+
+def sum_cds_matrix_per_cohort(features, K, B):
+    Ds = distance_matrix(features, K, B)
+
+    Ds_arr = np.array([D.to_numpy() for D in Ds.values()])
+    Ds_cohort_sum = np.nansum(Ds_arr, axis=0)
+
+    return Ds_cohort_sum
 
 # symmetric kullback-leibler divergence
 def symmetric_kl(pdf_p, pdf_q, sample_points):
@@ -196,8 +225,76 @@ def compute_adjacency_matrix(df, gene_col='value', clusters_col='clusters', n_sa
     return adjacency_matrix
 
 
+def distribution_info(df):
+    results = {
+        'Shapiro p-value': {},  # Specifies p-value comes from Shapiro-Wilk test
+        'is_normal': {},  # Boolean for normality check
+        'mean': {},  # Mean of the distribution
+        'median': {},  # Median of the distribution
+        'IQR_25': {},  # 25th percentile (Q1)
+        'IQR_75': {}  # 75th percentile (Q3)
+    }
+
+    for col in df.select_dtypes(include=['number']):
+        data = df[col].dropna()  # Drop NaN values for accuracy
+        p_value = stats.shapiro(data).pvalue  # Shapiro-Wilk normality test
+
+        # Store results
+        results['Shapiro p-value'][col] = p_value
+        results['is_normal'][col] = p_value > 0.05  # Normal if p > 0.05
+        results['mean'][col] = data.mean()
+        results['median'][col] = data.median()
+        results['IQR_25'][col] = data.quantile(0.25)  # Q1 (25th percentile)
+        results['IQR_75'][col] = data.quantile(0.75)  # Q3 (75th percentile)
+
+    return pd.DataFrame(results)
 
 
+def add_percent_difference(distribution_info_dict, ref_cohort_key):
+    """
+    Adds percent difference columns for mean and median relative to a reference cohort.
+
+    Parameters:
+        - distribution_info_dict (dict): Dictionary of DataFrames with cohort names as keys.
+        - ref_cohort_key (str): The key of the reference cohort.
+
+    Returns:
+        - dict: Updated dictionary with added percent difference columns.
+    """
+
+    if ref_cohort_key not in distribution_info_dict:
+        raise ValueError(f"Reference cohort '{ref_cohort_key}' not found in the dictionary.")
+
+    ref_df = distribution_info_dict[ref_cohort_key]  # Reference cohort DataFrame
+
+    for cohort, df in distribution_info_dict.items():
+        if cohort == ref_cohort_key:
+            continue  # Skip reference cohort
+
+        updated_df = df.copy()  # Copy to avoid modifying original
+
+        # Compute percent difference for mean and median
+        updated_df[f'% diff mean ({ref_cohort_key})'] = (
+                (df['mean'] - ref_df['mean']) / ref_df['mean'] * 100
+        ).fillna(0)  # Fill NaNs (if division by zero occurs)
+
+        updated_df[f'% diff median ({ref_cohort_key})'] = (
+                (df['median'] - ref_df['median']) / ref_df['median'] * 100
+        ).fillna(0)  # Fill NaNs
+
+        distribution_info_dict[cohort] = updated_df  # Update the dictionary
+
+    return distribution_info_dict
+
+
+def sanitize_filename(filename, replacement="_"):
+    # Windows disallowed characters for filenames
+    forbidden_chars = r'[<>:"/\\|?*]'
+
+    # Trim trailing dots and spaces (Windows does not allow them)
+    filename = re.sub(forbidden_chars, replacement, filename).strip().rstrip(".")
+
+    return filename
 
 
 
