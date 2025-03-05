@@ -2,6 +2,8 @@ import warnings
 from pathlib import Path
 import os
 import shutil
+from pyexpat import features
+
 import numpy as np
 import pandas as pd
 import random
@@ -42,9 +44,11 @@ class Cohort:
         elif extracted_features_path is not None:
             self.extracted_features = pd.read_excel(extracted_features_path, sheet_name=extracted_features_sheet_name, index_col=0)
             self.file_stems = self.extracted_features.index.to_list()
+            self.file_stems = [str(stem) for stem in self.file_stems]
+            self.extracted_features.index = self.file_stems
             self.nim_paths = None
             self.nims = None
-            self.names = []
+            self.names = self.file_stems.copy()
             self.combined_features = self.extracted_features.copy()
 
         self.given_features = pd.DataFrame(index=self.names)
@@ -81,7 +85,8 @@ class Cohort:
             self.combined_features = self.given_features.copy()
         else:
             self.combined_features = pd.merge(self.given_features, self.extracted_features,
-                                              how='outer', left_index=True, right_index=True)
+                                              how='outer', left_index=True, right_index=True, sort=False)
+            self.combined_features = self.combined_features.reindex(self.given_features.index)
         self.n = len(self)
 
     def __len__(self):
@@ -293,7 +298,9 @@ class Cohort:
         #self.combined_features = pd.merge(self.given_features, extracted_features.rename(columns=voi_col_names), left_index=True, right_index=True)
 
         if inplace:
-            self.combined_features = pd.merge(self.combined_features, extracted_features.add_prefix(prefix), how='outer', left_index=True, right_index=True)
+            inds = self.combined_features.index if not self.combined_features.empty else self.extracted_features.index
+            self.combined_features = pd.merge(self.combined_features, extracted_features.add_prefix(prefix), how='outer',
+                                              left_index=True, right_index=True, sort=False).reindex(inds)
             self.combined_features_long = pd.melt(self.combined_features, id_vars=self.given_features.columns,
                                                   value_vars=extracted_features.add_prefix(prefix).columns, var_name='VOI',
                                                   value_name=feature, ignore_index=False)
@@ -313,7 +320,64 @@ class Cohort:
         self.connectivity = Connectivity(feature_df=self.extracted_features, covariate_df=cov_df, **kwargs)
         self._connectivity_init_kwargs = kwargs
 
-    def calculate_cds(self, ref_cohort, subnetwork_name=None, prefix=None, loo_verbose=False):
+
+    def calculate_average_cds_matrix(self, ref_cohort, loo_verbose=False, excel_out_path=None):
+
+
+        if self == ref_cohort:
+            if loo_verbose:
+                print('Verbose mode is selected. Note that thresholding parameters are hard-coded')
+            # leave-one-out
+            self._loo_conns_test = {}
+            Ds = {}
+            for subject in self.names:
+                if loo_verbose:
+                    print(f'Calculating CDS using LOO approach for subject {subject}')
+                extracted_features_loo = self.extracted_features.copy().drop(subject, axis=0)
+                extracted_features_sbj = self.extracted_features.loc[[subject]].copy()
+                if self.covariates is None:
+                    cov_df_loo = None
+                else:
+                    cov_df_loo = self.given_features[self.covariates].copy().drop(subject, axis=0)
+
+                conn_loo = Connectivity(feature_df=extracted_features_loo,
+                                        covariate_df=cov_df_loo,
+                                        **self._connectivity_init_kwargs)
+                conn_loo.calculate_linear_fit()
+
+                Ds.update(f.distance_matrix(features=extracted_features_sbj,
+                                       K=conn_loo.df_K,
+                                       B=conn_loo.df_B,
+                                       ))
+
+
+                if loo_verbose:
+                    conn_loo.threshold_connectivity(method='CI', p=0.005)
+                    conn_loo.threshold_connectivity(method='matrix_threshold', matrix_thr=0.5)
+                    print(f'total: {conn_loo.network.n_connect}')
+
+                self._loo_conns_test[subject] = conn_loo
+            Ds_arr = np.array([D.to_numpy() for D in Ds.values()])
+            self.sum_cds_arr = np.nansum(Ds_arr, axis=0)
+
+
+        else:
+            self.sum_cds_arr = f.sum_cds_matrix_per_cohort(features=self.extracted_features,
+                                     K=ref_cohort.connectivity.df_K,
+                                     B=ref_cohort.connectivity.df_B, )
+
+        self.aver_cds_arr = self.sum_cds_arr / self.n
+        self.aver_cds = pd.DataFrame(data=self.aver_cds_arr,
+                                     index=self.extracted_features.columns,
+                                     columns=self.extracted_features.columns,
+                                     )
+        if excel_out_path is not None:
+            if not os.path.exists(os.path.dirname(excel_out_path)):
+                os.mkdir(os.path.dirname(excel_out_path))
+            self.aver_cds.to_excel(excel_out_path)
+
+
+    def calculate_cds(self, ref_cohort, subnetwork_name=None, prefix=None, loo_verbose=False, calculate_pairwise_cds=False):
         # CDS = Connectivity Deviation Score
         # reference cohort needs to be a cohort object
 
@@ -323,6 +387,8 @@ class Cohort:
             # leave-one-out
             self.cds = pd.DataFrame()
             self._loo_conns_test = {}
+            if calculate_pairwise_cds:
+                Ds = {}
             for subject in self.names:
                 if loo_verbose:
                     print(f'Calculating CDS using LOO approach for subject {subject}')
@@ -341,6 +407,10 @@ class Cohort:
                     cds_sbj = f.cds_per_voi(features=extracted_features_sbj,
                                             K=conn_loo.df_K,
                                             B=conn_loo.df_B,)
+                    if calculate_pairwise_cds:
+                        D = f.distance_matrix(features=extracted_features_sbj,
+                                              K=conn_loo.df_K,
+                                              B=conn_loo.df_B,)
                 else:
                     try:
                         #subnet_dict = {name: network.vois for name, network in
@@ -356,6 +426,10 @@ class Cohort:
                         cds_sbj = f.cds_per_voi(features=extracted_features_sbj,
                                                  K=conn_loo.subnetworks_nonthr[subnetwork_name].df_K,
                                                  B=conn_loo.subnetworks_nonthr[subnetwork_name].df_B, )
+                        if calculate_pairwise_cds:
+                            D = f.distance_matrix(features=extracted_features_sbj,
+                                                     K=conn_loo.subnetworks_nonthr[subnetwork_name].df_K,
+                                                     B=conn_loo.subnetworks_nonthr[subnetwork_name].df_B, )
                     except KeyError:
                         raise KeyError(f'Selected network {subnetwork_name} is not defined')
 
@@ -365,18 +439,29 @@ class Cohort:
                     print(f'total: {conn_loo.network.n_connect}')
                 self._loo_conns_test[subject] = conn_loo
                 self.cds = pd.concat([self.cds, cds_sbj], ignore_index=False)
+                if calculate_pairwise_cds:
+                    Ds.update(D)
+            self.cds_pairwise = f.pairwise_cds_distr_params(Ds=Ds)
 
         else:
             if subnetwork_name is None:
                 self.cds = f.cds_per_voi(features=self.extracted_features,
                                          K=ref_cohort.connectivity.df_K,
                                          B=ref_cohort.connectivity.df_B,)
+                if calculate_pairwise_cds:
+                    self.cds_pairwise = f.pairwise_cds_distr_params(features=self.extracted_features,
+                                                                    K=ref_cohort.connectivity.df_K,
+                                                                    B=ref_cohort.connectivity.df_B, )
 
             else:
                 try:
                     self.cds = f.cds_per_voi(features=self.extracted_features,
                                              K=ref_cohort.connectivity.subnetworks_nonthr[subnetwork_name].df_K,
                                              B=ref_cohort.connectivity.subnetworks_nonthr[subnetwork_name].df_B, )
+                    self.cds_pairwise = f.pairwise_cds_distr_params(features=self.extracted_features,
+                                             K=ref_cohort.connectivity.subnetworks_nonthr[subnetwork_name].df_K,
+                                             B=ref_cohort.connectivity.subnetworks_nonthr[subnetwork_name].df_B, )
+
                 except KeyError:
                     raise KeyError(f'Selected network {subnetwork_name} is not defined')
         self.cds_ref_cohort_name = ref_cohort.name
@@ -394,7 +479,8 @@ class Cohort:
         else:
             value_name = prefix
             prefix = f'{prefix}_'
-        self.combined_features = pd.merge(self.combined_features, self.cds.add_prefix(prefix), how='outer', left_index=True, right_index=True)
+        self.combined_features = pd.merge(self.combined_features, self.cds.add_prefix(prefix), how='outer',
+                                          left_index=True, right_index=True, sort=False).reindex(self.combined_features.index)
         self.cds_long = pd.melt(self.cds, value_vars=self.cds.columns, var_name='VOI', value_name=value_name, ignore_index=False)
         #self.combined_features_long = pd.merge(self.combined_features_long, self.cds_long,
         #                                       left_index=True, right_index=True,

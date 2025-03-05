@@ -303,25 +303,40 @@ def plot_matrix(data, data2=None, save_path=None, data_label='', data2_label='',
 def voi_boxplots(cohorts, attr='extracted_features',
                  subnetwork_name='', p_thr=0.05, p_given_dict=None,
                  palette=None, color='w',
+                 parametric=True,
                  save_folder=None, prefix='', return_stats=False,
+                 save_distr_info=False, ref_cohort_name=None,
                  figsize=None,
                  ):
 
     if palette is not None:
         color = None
 
+    if save_folder is not None and not os.path.exists(save_folder):
+        os.mkdir(save_folder)
+
     df = pd.DataFrame()
     vois = None
+
+    dict_info = {}
     for cohort in cohorts:
         df_temp = getattr(cohort, attr).copy()
         if subnetwork_name:
             vois = cohort.connectivity.subnetworks[subnetwork_name].vois
             df_temp = df_temp[vois]
         vois = df_temp.columns
+        if save_distr_info:
+            dict_info[cohort.name] = f.distribution_info(df_temp.copy())
         #df_temp = cohort.cds.copy()
         df_temp['Cohort'] = [cohort.name] * len(df_temp)
         df_temp['Subject'] = df_temp.index
         df = pd.concat([df, df_temp], ignore_index=False)
+
+    if save_distr_info:
+        if ref_cohort_name is not None:
+            dict_info = f.add_percent_difference(dict_info, ref_cohort_name)
+        for cohort_name, df_info in dict_info.items():
+            df_info.to_excel(f'{save_folder}/distr_info_{f.sanitize_filename(cohort_name)}.xlsx')
 
     df_anova = pd.DataFrame()
     df_ttest = pd.DataFrame()
@@ -336,7 +351,8 @@ def voi_boxplots(cohorts, attr='extracted_features',
         else:
             p_given = None
 
-        df_ttest_temp = df.pairwise_tests(dv=voi, between='Cohort', effsize='cohen', padjust='fdr_bh')
+        df_ttest_temp = df.pairwise_tests(dv=voi, between='Cohort', parametric=parametric,
+                                          effsize='cohen', padjust='fdr_bh')
         df_ttest_temp['VOI'] = [voi] * len(df_ttest_temp)
         df_ttest = pd.concat([df_ttest, df_ttest_temp], ignore_index=True)
 
@@ -528,7 +544,8 @@ def plot_combined_bar_strip_spaghetti(
         subject_col: str,
         signal_col: str,
         error_metric='sd',  # Error metric for barplot ('sd', 'ci', etc.)
-        jitter: float = 0  # Set jitter to 0 to align stripplot and spaghetti plot points
+        jitter: float = 0,  # Set jitter to 0 to align stripplot and spaghetti plot points
+        palette=('white', 'lightgray', 'lightskyblue'),
 ):
     """
     Function to plot a combination of barplot, stripplot, and spaghetti plot on a given ax.
@@ -570,10 +587,12 @@ def plot_combined_bar_strip_spaghetti(
                 hue=timepoint_col,
                 dodge=True,
                 #palette=['lightgray'] * len(data[timepoint_col].unique()),  # Same color for all timepoints
-                palette=['white', 'lightgray', 'lightskyblue'],
+                palette=palette,
                 #edgecolor='black',  # Black outer contour
                 showfliers=False,
                 ax=ax)
+
+
 
     # Stripplot to show individual data points (black points with alpha=0.5)
     sns.stripplot(data=data,
