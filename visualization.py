@@ -149,6 +149,7 @@ def plot_distributions(list_of_data,
                        vmin=None, vmax=None,
                        cmap=cc.cm.coolwarm, hue_vmin=None, hue_vmax=None,
                        xlabels=None, ylabel=None, cbar_label='',
+                       title=None, stats_in_title=True,
                        save_path=None, save_stats=True, kwargs_stats={}):
 
     # GET COMBINED DATAFRAME FOR PLOTTING
@@ -167,6 +168,14 @@ def plot_distributions(list_of_data,
             print('WARNING in plot_distributions: all xlabels have the same name. If you are plotting distribution for a single network, ignore this warning. Otherwise, set distinct xlabels.')
 
     fig, ax = plt.subplots()
+
+    # CALCULATE STATISTICS
+    if save_stats:
+        if not kwargs_stats:
+            stats = df.pairwise_tests(dv=y, within='network_name', subject='VOI_pair', parametric=False, effsize='cohen')
+        else:
+            stats = df.pairwise_tests(**kwargs_stats)
+        stats.to_excel(f'{os.path.splitext(save_path)[0]}.xlsx', index=False)
 
     # BOXPLOT
     sns.boxplot(data=df, x=x, y=y, ax=ax,
@@ -199,6 +208,9 @@ def plot_distributions(list_of_data,
     ax.set_ylim([vmin, vmax])
     ax.set_xlabel(None)
     ax.set_ylabel(ylabel)
+    if save_stats and stats_in_title:
+        title = f'{title}, p-unc = {stats["p-unc"][0]:.3g}, cohen = {stats["cohen"][0]:.2f}'
+    ax.set_title(title)
     for label in ax.get_xticklabels():
         label.set_rotation(45)
         label.set_ha('right')
@@ -210,13 +222,6 @@ def plot_distributions(list_of_data,
             os.mkdir(os.path.dirname(save_path))
         fig.savefig(save_path, dpi=300, transparent=True, bbox_inches='tight')
 
-    # CALCULATE STATISTICS
-    if save_stats:
-        if not kwargs_stats:
-            stats = df.pairwise_tests(dv='abs_value', within='network_name', subject='VOI_pair', parametric=False)
-        else:
-            stats = df.pairwise_tests(**kwargs_stats)
-        stats.to_excel(f'{os.path.splitext(save_path)[0]}.xlsx', index=False)
     # plt.close()
 
 
@@ -251,7 +256,118 @@ def colorcoded_stripplot(df, x, y, hue, fig, ax, cmap=cc.cm.coolwarm, vmin=None,
     cb1.set_label(cbar_label)
 
 
-def plot_matrix(data, data2=None, save_path=None, data_label='', data2_label='', ticks=True, cmap=cc.cm.coolwarm, **kwargs):
+def heatmap_with_groups(
+    data,
+    group_map=None,
+    *,
+    show_brackets: bool = True,
+    bracket_kwargs: dict | None = None,
+    separators: bool = False,
+    separator_kwargs: dict | None = None,
+    **heatmap_kwargs,
+):
+    """
+    A thin wrapper around ``sns.heatmap``.
+
+    *If* you pass ``group_map`` (an OrderedDict from network → list of regions)
+    the heat-map is re-ordered into contiguous blocks, one label per block is
+    shown, and you may draw brackets and/or separator lines.
+
+    *If* you leave ``group_map`` = ``None`` it behaves exactly like
+    ``sns.heatmap`` (all extra bells & whistles are ignored).
+
+    Parameters
+    ----------
+    data : 2-D array-like or pandas.DataFrame
+    group_map : OrderedDict[str, list[str]] | None
+    show_brackets : bool
+    bracket_kwargs : dict | None
+    separators : bool
+    separator_kwargs : dict | None
+    **heatmap_kwargs : any valid seaborn.heatmap keyword
+    """
+    # ------------------------------------------------------------------
+    # 0. Just fall back to plain seaborn when no grouping is requested
+    # ------------------------------------------------------------------
+    if group_map is None:
+        # honour a user-supplied figsize, even though seaborn itself ignores it
+        fig, ax = plt.subplots(figsize=heatmap_kwargs.pop("figsize", (8, 8)))
+        sns.heatmap(data, ax=ax, **heatmap_kwargs)
+        return fig, ax
+
+    # ------------------------------------------------------------------
+    # 1. From here on we are in "grouped" mode
+    # ------------------------------------------------------------------
+    if not isinstance(data, pd.DataFrame):
+        data = pd.DataFrame(data)
+
+    ordered_regs = [r for regs in group_map.values() for r in regs]
+    if set(ordered_regs) != set(data.index):
+        diff = set(data.index) ^ set(ordered_regs)
+        raise ValueError(f"group_map and data labels differ: {diff}")
+    data = data.loc[ordered_regs, ordered_regs]
+
+    # collect block metadata
+    groups, centres, boundaries = [], [], []
+    cur = 0
+    for net, regs in group_map.items():
+        start, end = cur, cur + len(regs) - 1
+        groups.append((net, start, end))
+        centres.append((start + end) / 2)
+        cur = end + 1
+        boundaries.append(cur - 0.5)
+    boundaries = boundaries[:-1]
+    net_labels = [n for n, _, _ in groups]
+
+    # draw heat-map
+    ph_kwargs = dict(xticklabels=False, yticklabels=False, cbar_kws={'shrink': .6})
+    ph_kwargs.update(heatmap_kwargs)
+    fig, ax = plt.subplots(figsize=ph_kwargs.pop("figsize", (8, 8)))
+    sns.heatmap(data, ax=ax, **ph_kwargs)
+
+    # custom labels (but hide tick-marks)
+    ax.set_xticks(centres)
+    ax.set_yticks(centres)
+    ax.set_xticklabels(net_labels, rotation=90, fontsize=20)
+    ax.set_yticklabels(net_labels, fontsize=20)
+    ax.tick_params(axis='both', which='both',
+                   length=0,)
+
+    # brackets
+    if show_brackets:
+        bkw = dict(color="black", lw=1.2, clip_on=False)
+        if bracket_kwargs:
+            bkw.update(bracket_kwargs)
+        for _, s, e in groups:
+            ax.plot([s, s, e, e], [0, -.005, -.005, 0],
+                    transform=ax.get_xaxis_transform(), **bkw)
+            ax.plot([0, -.005, -.005, 0], [s, s, e, e],
+                    transform=ax.get_yaxis_transform(which='tick2'), **bkw)
+
+    # separator lines
+    if separators and boundaries:
+        skw = dict(color="black", lw=.5, zorder=3)
+        if separator_kwargs:
+            skw.update(separator_kwargs)
+        for b in boundaries:
+            ax.axhline(b, xmin=-0.5, xmax=len(data)-0.5, **skw)
+            ax.axvline(b, ymin=-0.5, ymax=len(data)-0.5, **skw)
+
+    ax.set_xlim(-0.5, len(data)-0.5)
+    ax.set_ylim(len(data)-0.5, -0.5)
+    plt.tight_layout()
+    return fig, ax
+
+
+def plot_matrix(data, data2=None,
+                group_map=None,  # dictionary, e.g. atlas.networks
+                save_path=None,
+                data_label='',
+                data2_label='',
+                ticks=True,
+                ticklabelsize=5,
+                cmap=cc.cm.coolwarm,
+                **kwargs):
     if data2 is not None:
         if not data.index.equals(data2.index):
             raise Exception('Input dataframes do not have the same index')
@@ -260,23 +376,31 @@ def plot_matrix(data, data2=None, save_path=None, data_label='', data2_label='',
         matrix = np.tril(matrix1) + np.triu(matrix2)
         data = pd.DataFrame(matrix, index=data.index, columns=data.columns)
 
-    fig, ax = plt.subplots()
-    sns.heatmap(data,
-                cmap=cmap,
-                #linewidths=.5,
-                #cbar_kws={'shrink': .5},
-                **kwargs)
+    #fig, ax = plt.subplots()
+    # sns.heatmap(data,
+    #             cmap=cmap,
+    #             #linewidths=.5,
+    #             #cbar_kws={'shrink': .5},
+    #             **kwargs)
+    fig, ax = heatmap_with_groups(data,
+                                  group_map=group_map,
+                                  cmap=cmap,
+                                  **kwargs,
+                                  )
+
     if ticks:
-        ax.tick_params(top=True, labeltop=True, bottom=False, labelbottom=False)
-        ax.tick_params(axis='x', labelrotation=90, labelsize=5)
-        ax.tick_params(axis='y', labelrotation=0, labelsize=5)
+        if group_map is None:
+            ax.tick_params(top=True, labeltop=True, bottom=False, labelbottom=False)
+        ax.tick_params(axis='x', labelrotation=90, labelsize=ticklabelsize)
+        ax.tick_params(axis='y', labelrotation=0, labelsize=ticklabelsize)
     else:
         ax.tick_params(left=False, labelleft=False, bottom=False, labelbottom=False,)
     ax.set_aspect('equal', 'box')
     #ax.set(xlabel=data2_label, ylabel=data_label)
     ax.set_xlabel(data2_label, fontsize=15)
     ax.set_ylabel(data_label, fontsize=15)
-    ax.xaxis.set_label_position('top')
+    if group_map is None:
+        ax.xaxis.set_label_position('top')
     ax.plot([0, 1], [1, 0], 'k-', linewidth=0.5, transform=ax.transAxes)
     plt.tight_layout()
 
@@ -301,9 +425,13 @@ def plot_matrix(data, data2=None, save_path=None, data_label='', data2_label='',
 
 
 def voi_boxplots(cohorts, attr='extracted_features',
+                 vois=None,
+                 covars=None, # list of covariate names - column names in given attr df
                  subnetwork_name='', p_thr=0.05, p_given_dict=None,
                  palette=None, color='w',
                  parametric=True,
+                 equal_var_for_anova=True,
+                 equal_var_for_ttest='auto',
                  save_folder=None, prefix='', return_stats=False,
                  save_distr_info=False, ref_cohort_name=None,
                  figsize=None,
@@ -316,17 +444,19 @@ def voi_boxplots(cohorts, attr='extracted_features',
         os.mkdir(save_folder)
 
     df = pd.DataFrame()
-    vois = None
 
     dict_info = {}
     for cohort in cohorts:
         df_temp = getattr(cohort, attr).copy()
-        if subnetwork_name:
-            vois = cohort.connectivity.subnetworks[subnetwork_name].vois
-            df_temp = df_temp[vois]
-        vois = df_temp.columns
+        if vois is None:
+            if subnetwork_name:
+            #vois = cohort.connectivity.subnetworks[subnetwork_name].vois
+                vois = cohort.connectivity.subnetworks_nonthr[subnetwork_name].vois
+            #df_temp = df_temp[vois]
+            else:
+                vois = df_temp.columns
         if save_distr_info:
-            dict_info[cohort.name] = f.distribution_info(df_temp.copy())
+            dict_info[cohort.name] = f.distribution_info(df_temp[vois].copy())
         #df_temp = cohort.cds.copy()
         df_temp['Cohort'] = [cohort.name] * len(df_temp)
         df_temp['Subject'] = df_temp.index
@@ -340,10 +470,25 @@ def voi_boxplots(cohorts, attr='extracted_features',
 
     df_anova = pd.DataFrame()
     df_ttest = pd.DataFrame()
+
+    #homosc = pg.homoscedasticity(data=df, )
+
+    #compar_method = 'anova' if parametric else 'kruskal'
+
+    if parametric:
+        if equal_var_for_anova:
+            compar_method = 'anova'
+        else:
+            compar_method = 'welch_anova'
+    else:
+        compar_method = 'kruskal'
+
     if prefix: prefix = f'_{prefix}'
     for voi in vois:
-        df_anova_temp = df.anova(dv=voi, between='Cohort')
+        df_anova_temp = getattr(pg, compar_method)(data=df, dv=voi, between='Cohort')
+        #df_anova_temp = df.anova(dv=voi, between='Cohort')
         df_anova_temp['VOI'] = [voi] * len(df_anova_temp)
+        df_anova_temp['compar_method'] = [compar_method] * len(df_anova_temp)
         df_anova = pd.concat([df_anova, df_anova_temp], ignore_index=True)
         p = df_anova_temp['p-unc'].to_numpy()[0]
         if p_given_dict is not None:
@@ -351,9 +496,21 @@ def voi_boxplots(cohorts, attr='extracted_features',
         else:
             p_given = None
 
-        df_ttest_temp = df.pairwise_tests(dv=voi, between='Cohort', parametric=parametric,
-                                          effsize='cohen', padjust='fdr_bh')
-        df_ttest_temp['VOI'] = [voi] * len(df_ttest_temp)
+        dv = voi
+        if covars is not None:
+            len_orig = len(df)
+            df.dropna(subset=covars, inplace=True)
+            if len(df) < len_orig:
+                print('WARNING: subjects with missing covariate values were dropped')
+            X = df[covars]
+            y = df[voi]
+            res = pg.linear_regression(X, y)
+            dv = f'{voi}_adj'
+            df[dv] = res.residuals_
+
+        df_ttest_temp = df.pairwise_tests(dv=dv, between='Cohort', parametric=parametric,
+                                          effsize='cohen', padjust='fdr_bh', correction=equal_var_for_ttest)
+        df_ttest_temp['VOI'] = [dv] * len(df_ttest_temp)
         df_ttest = pd.concat([df_ttest, df_ttest_temp], ignore_index=True)
 
         if p < p_thr and save_folder is not None:
@@ -365,14 +522,14 @@ def voi_boxplots(cohorts, attr='extracted_features',
                     p_given_suffix = f'_pFDR_{p_given:.4f}_'
 
             fig, ax = plt.subplots(figsize=figsize)
-            sns.boxplot(x='Cohort', y=voi, data=df, color=color, palette=palette, showfliers=False, ax=ax)
-            sns.stripplot(x='Cohort', y=voi, data=df, color='k', alpha=0.5, s=7, ax=ax)
+            sns.boxplot(x='Cohort', y=dv, data=df, color=color, palette=palette, showfliers=False, ax=ax)
+            sns.stripplot(x='Cohort', y=dv, data=df, color='k', alpha=0.5, s=7, ax=ax)
             ax.tick_params(axis='both', labelsize=15)
             for label in ax.get_xticklabels():
                 label.set_rotation(45)
                 label.set_ha('right')
             fig.tight_layout()
-            fig.savefig(f'{save_folder}/{attr}{prefix}_anova_p_{p:.4f}{p_given_suffix}_voi_{voi}.png', bbox_inches='tight', transparent=True, dpi=200)
+            fig.savefig(f'{save_folder}/{attr}{prefix}_anova_p_{p:.4f}{p_given_suffix}_voi_{dv}.png', bbox_inches='tight', transparent=True, dpi=200)
 
     df_anova.set_index('VOI', inplace=True)
     df_anova.sort_values(by='p-unc', ascending=True, inplace=True)
@@ -385,6 +542,7 @@ def voi_boxplots(cohorts, attr='extracted_features',
     if save_folder is not None:
         df_anova.to_excel(f'{save_folder}/{attr}{prefix}_anova.xlsx')
         df_ttest.to_excel(f'{save_folder}/{attr}{prefix}_ttests.xlsx')
+        df.to_excel(f'{save_folder}/{attr}{prefix}_all_data.xlsx')
     if return_stats:
         return df_anova, df_ttest
 
@@ -546,6 +704,10 @@ def plot_combined_bar_strip_spaghetti(
         error_metric='sd',  # Error metric for barplot ('sd', 'ci', etc.)
         jitter: float = 0,  # Set jitter to 0 to align stripplot and spaghetti plot points
         palette=('white', 'lightgray', 'lightskyblue'),
+        markersize=5,
+        alpha=0.5,
+        sorting=False,
+        legend=False,
 ):
     """
     Function to plot a combination of barplot, stripplot, and spaghetti plot on a given ax.
@@ -569,6 +731,20 @@ def plot_combined_bar_strip_spaghetti(
         The jitter applied to stripplot to avoid overlapping points (set to 0 for no jitter).
     """
 
+
+
+    # Calculate the unique x positions for each combination of cohort and timepoint manually
+    unique_cohorts = data[cohort_col].unique()
+    unique_timepoints = data[timepoint_col].unique()
+    if sorting:
+        unique_timepoints = sorted(unique_timepoints)
+    cohort_positions = {cohort: i for i, cohort in enumerate(unique_cohorts)}
+
+    data[timepoint_col] = pd.Categorical(
+        data[timepoint_col],
+        categories=unique_timepoints,
+        ordered=True
+    )
     # Barplot for average signal levels (set edgecolor to black, and use one color for all bars)
     # sns.barplot(data=data,
     #             x=cohort_col,
@@ -602,18 +778,16 @@ def plot_combined_bar_strip_spaghetti(
                   dodge=True,
                   jitter=jitter,  # No jitter to align the points for the spaghetti plot
                   color="black",  # All points black
-                  alpha=0.5,  # Transparency for the points
+                  alpha=alpha,  # Transparency for the points
+                  size=markersize,
                   linewidth=1,
                   edgecolor='black',
                   ax=ax)
 
     # Remove legend
-    ax.legend_.remove()
+    if not legend:
+        ax.legend_.remove()
 
-    # Calculate the unique x positions for each combination of cohort and timepoint manually
-    unique_cohorts = data[cohort_col].unique()
-    unique_timepoints = data[timepoint_col].unique()
-    cohort_positions = {cohort: i for i, cohort in enumerate(unique_cohorts)}
 
     # Calculate dodge correction based on the number of timepoints
     num_timepoints = len(unique_timepoints)
@@ -667,9 +841,3 @@ def plot_combined_bar_strip_spaghetti(
     ax.tick_params(axis='x', rotation=45)
     #ax.set_ylim(0.5, None)
     ax.figure.tight_layout()
-
-
-
-
-
-
