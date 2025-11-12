@@ -129,7 +129,7 @@ class Connectivity:
                  fisher_transf=False,
                  n_bootstrap_samples=None,
                  random_state=0,
-                 n_min_unique_elements=3,
+                 n_min_unique_elements=None,
                  lin_fit_method=None,
                  kls_dict=None,
                  name=None,
@@ -148,7 +148,19 @@ class Connectivity:
         # BOOTSTRAPPING ATTRIBUTES
         self.n_boots = n_bootstrap_samples
         self.seed = random_state
-        self.n_min_unique_elements = n_min_unique_elements
+
+        # TO FILTER DEGENERAGE BOOTSTRAP REPLICATES
+        if covariate_df is None:
+            n_covariates = 0
+        else:
+            n_covariates = len(covariate_df.columns)
+        if n_min_unique_elements is None:
+            self.n_min_unique_elements = n_covariates + 3
+            print(f'Warning: n_min_unique_elements in bootstrap sample is not set by user. '
+                  f'Calculated automatically as k + 3 = {self.n_min_unique_elements}, where k = {n_covariates} '
+                  f'is the number of covariates')
+        else:
+            self.n_min_unique_elements = n_min_unique_elements
 
         if kind == 'kls' and kls_dict is not None:
             self.subjects = list(self.kls_dict.keys())
@@ -199,7 +211,11 @@ class Connectivity:
             matrix = connectivity_measure.fit_transform([boot_features_df])[0]
         np.fill_diagonal(matrix, 0)  # setting autocorrelations to zero
         if self.fisher_transf:
-            return(np.arctanh(matrix))
+            try:
+                return(np.arctanh(matrix))
+            except FloatingPointError as e:
+                print(f'Floating point error: you might have encountered a degenerate bootstrap replicate. Leave n_min_unique_elements=None or increase it')
+                raise e
         else:
             return matrix
 

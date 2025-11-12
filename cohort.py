@@ -254,8 +254,19 @@ class Cohort:
         self.combined_features['scaling_factor'] = self.scaling_factors
         # self.combined_features = pd.merge(self.combined_features, self.given_features, how='outer', left_index=True, right_index=True)
 
+    def replace_by_zscore_images(self, normcoh_aver_nim, normcoh_stddev_nim, save_path=None, verbose=False):
+        for i in range(self.n):
+            if verbose:
+                print(f'Replacing image {i} ({self.names[i]}) of {self.n} by its z-score image')
+            self.nim_arrs[i] = (self.nim_arrs[i] - normcoh_aver_nim.dataobj) / normcoh_stddev_nim.dataobj
+            self.nims[i] = nib.Nifti1Image(self.nim_arrs[i], self.nims[i].affine, self.nims[i].header)
+            if save_path is not None:
+                if not os.path.exists(save_path):
+                    os.mkdir(save_path)
+                nib.save(self.nims[i], (Path(save_path) / f'{self.names[i]}_zscore').with_suffix('.nii.gz'))
 
-    def generate_average_image(self, save_dir=None, add_n_subjects=False):
+
+    def generate_average_image(self, save_dir=None, add_n_subjects=False, return_image=False):
         aver_arr = np.mean(np.array(self.nim_arrs), axis=0)
         aver_nim = nib.Nifti1Image(dataobj=aver_arr, affine=self.nims[0].affine, header=self.nims[0].header)
         if save_dir is not None:
@@ -266,7 +277,24 @@ class Cohort:
             else:
                 n_sbj = ''
             nib.save(aver_nim, (Path(save_dir) / f'average_{self.name}{n_sbj}').with_suffix('.nii.gz'))
+        if return_image:
+            return aver_nim
+        self.aver_nim = aver_nim
 
+    def generate_stddev_image(self, save_dir=None, add_n_subjects=False, return_image=False):
+        stddev_arr = np.std(np.array(self.nim_arrs), axis=0)
+        stddev_nim = nib.Nifti1Image(dataobj=stddev_arr, affine=self.nims[0].affine, header=self.nims[0].header)
+        if save_dir is not None:
+            if not os.path.exists(save_dir):
+                os.mkdir(save_dir)
+            if add_n_subjects:
+                n_sbj = f'_n={self.n}'
+            else:
+                n_sbj = ''
+            nib.save(stddev_nim, (Path(save_dir) / f'stddev_{self.name}{n_sbj}').with_suffix('.nii.gz'))
+        if return_image:
+            return stddev_nim
+        self.stddev_nim = stddev_nim
 
     def extract_features(self, atlas, feature='mean', labels='all', inplace=True, cols_to_drop=None, save_path=None, prefix=None, **extraction_kwargs):
         # provide list of labels (=VOIs) if only a subset of VOIs is needed
@@ -441,7 +469,8 @@ class Cohort:
                 self.cds = pd.concat([self.cds, cds_sbj], ignore_index=False)
                 if calculate_pairwise_cds:
                     Ds.update(D)
-            self.cds_pairwise = f.pairwise_cds_distr_params(Ds=Ds)
+            if calculate_pairwise_cds:
+                self.cds_pairwise = f.pairwise_cds_distr_params(Ds=Ds)
 
         else:
             if subnetwork_name is None:

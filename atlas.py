@@ -6,8 +6,20 @@ import pandas as pd
 import nibabel as nib
 
 
-class Atlas:
+def find_voi_centers(vois, mask, n_dim):
+    voi_centers = []
+    for voi in vois:
+        voi_center = []
+        for i in range(n_dim):
+            voi_center.append(np.mean(mask[voi][i]))
+        voi_centers.append(voi_center)
+    return pd.DataFrame(data=np.array(voi_centers),
+                        index=vois,
+                        columns=['x', 'y', 'z'])
 
+
+
+class Atlas:
     def __init__(self,
                  atlas_dir,
                  atlas_name=None,):
@@ -73,15 +85,7 @@ class Atlas:
             return f'{self.name}, {len(self)} VOIs'
 
     def find_voi_centers(self):
-        voi_centers = []
-        for voi in self.vois:
-            voi_center = []
-            for i in range(self.n_dim):
-                voi_center.append(np.mean(self.mask[voi][i]))
-            voi_centers.append(voi_center)
-        self.voi_centers_df = pd.DataFrame(np.array(voi_centers), index=self.vois, columns=['x', 'y', 'z'])
-
-
+        self.voi_centers_df = find_voi_centers(self.vois, self.mask, self.n_dim)
 
 
 class AggregatedAtlas:
@@ -103,7 +107,9 @@ class AggregatedAtlas:
         self.vois = sum(vois, [])
         assert len(self.vois) == len(set(self.vois)), 'Input atlases have at least one VOI with the same name'
         self.nim = atlases[0].nim  # THIS MUST BE IMPROVED
-        self.n_dim = self.nim.ndim  # this must be improved
+        #self.nim = None
+        assert all([atlas.n_dim == atlases[0].n_dim for atlas in atlases]), 'Input atlases have different number of dimensions'
+        self.n_dim = self.atlases[0].n_dim
 
         if legend_excel_path is not None:
             self.legend_path = legend_excel_path
@@ -139,13 +145,7 @@ class AggregatedAtlas:
         return f'{self.name}, {len(self)} VOIs'
 
     def find_voi_centers(self):
-        voi_centers = []
-        for voi in self.vois:
-            voi_center = []
-            for i in range(self.n_dim):
-                voi_center.append(np.mean(self.mask[voi][i]))
-            voi_centers.append(voi_center)
-        self.voi_centers_df = pd.DataFrame(np.array(voi_centers), index=self.vois, columns=['x', 'y', 'z'])
+        self.voi_centers_df = find_voi_centers(self.vois, self.mask, self.n_dim)
 
 
 
